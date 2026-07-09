@@ -1,0 +1,122 @@
+{
+  "project_info": {
+    "project_number": "938128200725",
+    "project_id": "qglide-firebase",
+    "storage_bucket": "qglide-firebase.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:938128200725:android:a9cadf420c8282bc15ea1c",
+        "android_client_info": {
+          "package_name": "com.alphatecks.driver"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "938128200725-bt9k487mbtmplf54e03651nrujlkvhdr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.alphatecks.driver",
+            "certificate_hash": "b2ffda753cadc9babeb47086dbdc0bb119f8a5c1"
+          }
+        },
+        {
+          "client_id": "938128200725-h5m62gd27u26rk8ordn49s3dsbn5mcd8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.alphatecks.driver",
+            "certificate_hash": "379f2a3f823f3c8551fca8f5f44636245756b5ca"
+          }
+        },
+        {
+          "client_id": "938128200725-erat8a9hdumnc991s7t1bg0knfsevku9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBm7CNTowgjhc6bZZGhMtIEcywtm94rcao"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "938128200725-erat8a9hdumnc991s7t1bg0knfsevku9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "938128200725-87uabg7th8uq5idm5h168ci6htjcbphu.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.alphatecks.qglide"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:938128200725:android:15550e0b5c5082e815ea1c",
+        "android_client_info": {
+          "package_name": "com.alphatecks.qglide"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "938128200725-36kkg49art9m0lkvb6o873sf2sasua84.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.alphatecks.qglide",
+            "certificate_hash": "8edfce6b947a8c25bb83f59cd238b80a139b414a"
+          }
+        },
+        {
+          "client_id": "938128200725-3m4t07qv6fbh85a3mg7ebqitolf6nph1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.alphatecks.qglide",
+            "certificate_hash": "b2ffda753cadc9babeb47086dbdc0bb119f8a5c1"
+          }
+        },
+        {
+          "client_id": "938128200725-7q0ofhqfovrl79p3dm394aoo4b70gujp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.alphatecks.qglide",
+            "certificate_hash": "2b387ce006fc76569283c527cec828b7eae15a12"
+          }
+        },
+        {
+          "client_id": "938128200725-erat8a9hdumnc991s7t1bg0knfsevku9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBm7CNTowgjhc6bZZGhMtIEcywtm94rcao"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "938128200725-erat8a9hdumnc991s7t1bg0knfsevku9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "938128200725-87uabg7th8uq5idm5h168ci6htjcbphu.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.alphatecks.qglide"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
