@@ -29,6 +29,10 @@ class AppConstants {
   static const profilePhotoAsset = 'assets/profile_photo.png';
   static const manageVehiclePhotoAsset = 'assets/manage_vehicle_photo.png';
   static const supportPhoneNumber = '+97466527179';
+  static const androidPlayStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.alphatecks.driver';
+  static const iosAppStoreUrl =
+      'https://apps.apple.com/app/qglide-driver/id6780602357';
   static const rideRequestAcceptDuration = Duration(seconds: 40);
   static const riderAddedStopNotificationDuration = Duration(seconds: 30);
   static const addedStopArrivalNotificationDuration = Duration(seconds: 30);

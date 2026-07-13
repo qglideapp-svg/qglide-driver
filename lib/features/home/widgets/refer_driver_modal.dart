@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../config/app_colors.dart';
+import '../../../config/app_constants.dart';
 import '../../../config/app_fonts.dart';
 import '../../../config/app_responsive.dart';
 import '../../../config/dashboard_theme.dart';
@@ -15,6 +18,13 @@ import '../../../shared/widgets/ride_panel_shared.dart';
 import '../refer_driver_progress_args.dart';
 
 class ReferDriverShare {
+  static String get _storeUrl {
+    if (!kIsWeb && Platform.isIOS) {
+      return AppConstants.iosAppStoreUrl;
+    }
+    return AppConstants.androidPlayStoreUrl;
+  }
+
   static Future<void> copyCode(BuildContext context, String code) async {
     await Clipboard.setData(ClipboardData(text: code));
     if (!context.mounted) return;
@@ -35,7 +45,7 @@ class ReferDriverShare {
     final strings = AppStringsScope.of(context);
     await SharePlus.instance.share(
       ShareParams(
-        text: strings.referDriverShareMessage(code),
+        text: strings.referDriverShareMessage(code, storeUrl: _storeUrl),
         subject: strings.referDriverTitle,
         sharePositionOrigin: sharePositionOrigin,
       ),

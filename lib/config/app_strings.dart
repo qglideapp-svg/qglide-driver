@@ -616,9 +616,10 @@ class AppStrings {
   String get referDriverShare => _t('Share', 'مشاركة');
   String get referDriverCodeCopied =>
       _t('Referral code copied', 'تم نسخ رمز الإحالة');
-  String referDriverShareMessage(String code) => _t(
-        'Join me as a driver on QGlide! Use my referral code $code when you sign up. I earn QAR 100 in my balance when you complete 100 rides in your first month.',
-        'انضم إليّ كسائق على كيو جلايد! استخدم رمز الإحالة $code عند التسجيل. أحصل على 100 ر.ق في رصيدي عند إكمالك 100 رحلة في شهرك الأول.',
+  String referDriverShareMessage(String code, {required String storeUrl}) =>
+      _t(
+        'Join me as a driver on QGlide! Use my referral code $code when you sign up. I earn QAR 100 in my balance when you complete 100 rides in your first month.\n\nDownload the app: $storeUrl',
+        'انضم إليّ كسائق على كيو جلايد! استخدم رمز الإحالة $code عند التسجيل. أحصل على 100 ر.ق في رصيدي عند إكمالك 100 رحلة في شهرك الأول.\n\nحمّل التطبيق: $storeUrl',
       );
   String get errReferDriverUnavailable => _t(
         'Your referral code is not available yet. Please try again shortly.',
