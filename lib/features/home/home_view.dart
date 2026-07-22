@@ -14,9 +14,10 @@ import '../../core/providers/app_providers.dart';
 import '../../shared/widgets/app_strings_scope.dart';
 import '../../shared/widgets/profile_avatar_image.dart';
 import '../../services/location_tracker_service.dart';
-import 'completed_ride_details_view.dart';
 import 'home_controller.dart';
+import 'models/driver_ride_details.dart';
 import 'models/nearby_ride_offer.dart';
+import 'ride_completed_view.dart';
 import '../../routes/app_routes.dart';
 import 'widgets/active_pickup_panel.dart';
 import 'widgets/active_trip_panel.dart';
@@ -25,7 +26,6 @@ import 'widgets/earnings_panel.dart';
 import 'widgets/refer_driver_modal.dart';
 import 'widgets/arrived_at_added_stop_modal.dart';
 import 'widgets/rider_added_stop_modal.dart';
-import 'widgets/ride_completed_panel.dart';
 import '../ride/chat/ride_chat_args.dart';
 import '../ride/chat/ride_chat_view.dart';
 import '../ride/widgets/dial_modal.dart';
@@ -72,7 +72,6 @@ class _HomeViewState extends ConsumerState<HomeView>
         if (!mounted) return;
 
         final controller = ref.read(homeControllerProvider);
-        await controller.initializeLocation();
         if (!mounted) return;
         await controller.restoreActiveRideOnLaunch();
         if (!mounted) return;
@@ -149,6 +148,7 @@ class _HomeViewState extends ConsumerState<HomeView>
     WidgetsBinding.instance.removeObserver(this);
     _homeAdPollTimer?.cancel();
     _controller.removeListener(_onControllerUpdated);
+    _controller.detachMapController();
     super.dispose();
   }
 
@@ -328,18 +328,25 @@ class _HomeViewState extends ConsumerState<HomeView>
     );
   }
 
-  void _handleRideDetails() {
-    final rideId = _controller.lastCompletedRideId;
-    if (rideId == null || rideId.isEmpty) return;
-
-    unawaited(
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => CompletedRideDetailsView(
+  Future<void> _openRideCompletedScreen({
+    required String rideId,
+    required DriverRideDetails initialDetails,
+  }) {
+    return Navigator.of(context).push<void>(
+      PageRouteBuilder<void>(
+        opaque: true,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: const Duration(milliseconds: 200),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return RideCompletedView(
             rideId: rideId,
-            initialDetails: _controller.lastCompletedRideDetails,
-          ),
-        ),
+            initialDetails: initialDetails,
+            onDone: () {
+              _controller.dismissRideCompleted();
+              Navigator.of(context).pop();
+            },
+          );
+        },
       ),
     );
   }
@@ -361,8 +368,35 @@ class _HomeViewState extends ConsumerState<HomeView>
   }
 
   Future<void> _handleCompleteTrip() async {
+    final rideId = _controller.activeTripRideIdForCompletion;
+    final provisionalDetails = _controller.buildProvisionalCompletionDetails();
+    if (rideId == null || provisionalDetails == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStringsScope.of(context).errNoActiveTripComplete),
+        ),
+      );
+      return;
+    }
+
+    var completionScreenOpen = true;
+    unawaited(
+      _openRideCompletedScreen(
+        rideId: rideId,
+        initialDetails: provisionalDetails,
+      ).whenComplete(() {
+        completionScreenOpen = false;
+      }),
+    );
+
     final error = await _controller.completeTrip();
-    if (!mounted || error == null) return;
+    if (!mounted) return;
+    if (error == null) return;
+
+    if (completionScreenOpen) {
+      Navigator.of(context).pop();
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(error)),
     );
@@ -519,7 +553,6 @@ class _HomeViewState extends ConsumerState<HomeView>
         ? 0.0
         : bottomPanelHeight - r.h(36);
     final modalHeightEstimate = r.rideModalMaxHeight(
-      rideCompleted: _controller.showsRideCompleted,
       activePickup: _controller.hasActivePickup,
     );
     final locationButtonBottom = r.locationButtonBottomOffset(
@@ -565,19 +598,13 @@ class _HomeViewState extends ConsumerState<HomeView>
                       : bottomPanelHeight,
                 ),
                 child: showsBottomModal
-                    ? _controller.showsRideCompleted
-                        ? _buildRidePanelSwitcher(
-                            bottomPanelHeight: bottomPanelHeight,
-                            hasActiveTrip: hasActiveTrip,
-                            hasActiveRide: hasActiveRide,
-                          )
-                        : SingleChildScrollView(
-                            child: _buildRidePanelSwitcher(
-                              bottomPanelHeight: bottomPanelHeight,
-                              hasActiveTrip: hasActiveTrip,
-                              hasActiveRide: hasActiveRide,
-                            ),
-                          )
+                    ? SingleChildScrollView(
+                        child: _buildRidePanelSwitcher(
+                          bottomPanelHeight: bottomPanelHeight,
+                          hasActiveTrip: hasActiveTrip,
+                          hasActiveRide: hasActiveRide,
+                        ),
+                      )
                     : SizedBox(
                         height: bottomPanelHeight,
                         child: _buildRidePanelSwitcher(
@@ -640,13 +667,7 @@ class _HomeViewState extends ConsumerState<HomeView>
           child: child,
         );
       },
-      child: _controller.showsRideCompleted
-          ? RideCompletedPanel(
-              key: const ValueKey('ride_completed'),
-              onDetails: _handleRideDetails,
-              onDone: _controller.dismissRideCompleted,
-            )
-          : _controller.hasActivePickup
+      child: _controller.hasActivePickup
               ? ActivePickupPanel(
                   key: ValueKey(
                     _controller.activePickupOffer?.id ?? 'active_pickup',
@@ -860,23 +881,42 @@ class _DashboardHeader extends StatelessWidget {
   }
 }
 
-class _MapSection extends ConsumerWidget {
+class _MapSection extends ConsumerStatefulWidget {
   const _MapSection({required this.showMap});
 
   final bool showMap;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_MapSection> createState() => _MapSectionState();
+}
+
+class _MapSectionState extends ConsumerState<_MapSection> {
+  var _canRenderMap = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _canRenderMap = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final controller = ref.watch(homeControllerProvider);
-
-    if (!showMap) {
-      return ColoredBox(color: DashboardTheme.of(context).mapFallback);
-    }
-
     final dashboard = DashboardTheme.of(context);
 
+    if (!widget.showMap) {
+      return ColoredBox(color: dashboard.mapFallback);
+    }
+
+    if (!_canRenderMap) {
+      return ColoredBox(color: dashboard.mapFallback);
+    }
+
     return GoogleMap(
-      key: const ValueKey('home_map'),
+      key: ValueKey('home_map_${controller.mapSessionId}'),
       initialCameraPosition: CameraPosition(
         target: controller.cameraTarget,
         zoom: controller.hasActiveTrip ? 18 : 16,

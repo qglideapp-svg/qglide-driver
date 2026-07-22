@@ -32,6 +32,11 @@ class HomeController extends ChangeNotifier {
   static const defaultPosition = LatLng(25.2854, 51.5310);
   static const _routeColor = Color(0xFFE3AA00);
 
+  HomeController() {
+    PushNotificationService.onRideRequestNotificationOpened =
+        handleRideRequestNotificationOpened;
+  }
+
   var _isOnline = false;
   var _isUpdatingOnlineStatus = false;
   var _hasSyncedOnlineFromStats = false;
@@ -67,6 +72,8 @@ class HomeController extends ChangeNotifier {
   var _pendingCameraZoom = 16.0;
   var _pendingCameraBearing = 0.0;
   var _pendingNavigationCamera = false;
+  var _mapSessionId = 0;
+  var _isInitializingHomeMap = false;
   DateTime? _lastNavigationCameraUpdate;
   var _cameraTarget = defaultPosition;
   var _driverPosition = defaultPosition;
@@ -77,7 +84,6 @@ class HomeController extends ChangeNotifier {
   var _hasActivePickup = false;
   var _hasActiveRide = false;
   var _hasActiveTrip = false;
-  var _showsRideCompleted = false;
   String? _lastCompletedRideId;
   DriverRideDetails? _lastCompletedRideDetails;
   var _showsTopUp = false;
@@ -190,14 +196,12 @@ class HomeController extends ChangeNotifier {
       _pendingRiderStopNotification;
   AddedStopArrivalNotification? get pendingAddedStopArrival =>
       _pendingAddedStopArrival;
-  bool get showsRideCompleted => _showsRideCompleted;
   String? get lastCompletedRideId => _lastCompletedRideId;
   DriverRideDetails? get lastCompletedRideDetails => _lastCompletedRideDetails;
   bool get showsTopUp => _showsTopUp;
   bool get showsWithdrawal => _showsWithdrawal;
   bool get showsEarningsFlow => _showsTopUp || _showsWithdrawal;
-  bool get showsBottomModal =>
-      hasRideRequest || _hasActivePickup || _showsRideCompleted;
+  bool get showsBottomModal => hasRideRequest || _hasActivePickup;
   bool get showsRidePanel => _hasActiveRide || _hasActiveTrip;
   bool get hasAcceptedRide =>
       _hasActivePickup || _hasActiveRide || _hasActiveTrip;
@@ -205,6 +209,7 @@ class HomeController extends ChangeNotifier {
   LatLng get cameraTarget => _cameraTarget;
   bool get locationReady => _locationReady;
   bool get locationDenied => _locationDenied;
+  int get mapSessionId => _mapSessionId;
   bool get showsDriverPointer =>
       _hasDriverMarker && _activeDriverIcon != null;
   double get pickupProgress {
@@ -1522,6 +1527,24 @@ class HomeController extends ChangeNotifier {
     _hasRideRequest = true;
   }
 
+  /// Opens the accept panel after the driver taps a ride-request notification.
+  Future<void> handleRideRequestNotificationOpened(
+    Map<String, dynamic> data,
+  ) async {
+    if (!_hasSyncedOnlineFromStats && !_isUpdatingOnlineStatus) {
+      await loadTodayStats();
+    } else if (_isOnline) {
+      startNearbyRidesPolling();
+    }
+
+    if (!_locationReady) {
+      await _ensureDriverPositionForPolling();
+    }
+
+    await _fetchNearbyRides();
+    notifyListeners();
+  }
+
   void dismissRideRequest() {
     if (_isAcceptingRide) return;
 
@@ -1794,6 +1817,24 @@ class HomeController extends ChangeNotifier {
     );
   }
 
+  String? get activeTripRideIdForCompletion {
+    if (!_hasActiveTrip) return null;
+    final rideId = _acceptedRideOffer?.id;
+    if (rideId == null || rideId.isEmpty) return null;
+    return rideId;
+  }
+
+  DriverRideDetails? buildProvisionalCompletionDetails() {
+    final offer = _acceptedRideOffer;
+    if (offer == null || !_hasActiveTrip) return null;
+
+    final actualFare = offer.hasRiderStopRequest && offer.requestedFare != null
+        ? offer.requestedFare!
+        : (offer.estimatedFare ?? 0);
+
+    return DriverRideDetails.fromActiveOffer(offer, amount: actualFare);
+  }
+
   Future<String?> completeTrip() async {
     if (_isCompletingTrip || _isCancellingRide) return null;
 
@@ -1839,7 +1880,6 @@ class HomeController extends ChangeNotifier {
       if (_isOnline) {
         startNearbyRidesPolling();
       }
-      _showsRideCompleted = true;
       unawaited(loadTodayStats());
       if (_hasLoadedEarnings) {
         unawaited(loadSignupPerformanceBonus());
@@ -1853,7 +1893,6 @@ class HomeController extends ChangeNotifier {
   }
 
   void dismissRideCompleted() {
-    _showsRideCompleted = false;
     _lastCompletedRideId = null;
     _lastCompletedRideDetails = null;
     _clearRideRoute();
@@ -1863,19 +1902,52 @@ class HomeController extends ChangeNotifier {
 
   void attachMapController(GoogleMapController controller) {
     _mapController = controller;
-    final pending = _pendingCameraTarget;
-    if (pending == null) return;
+    unawaited(_onHomeMapCreated());
+  }
 
+  void detachMapController() {
+    _mapController = null;
+    _mapSessionId++;
+  }
+
+  Future<void> _onHomeMapCreated() async {
+    await _syncMapCamera(animated: false);
+
+    if (!_locationReady && !_isInitializingHomeMap) {
+      _isInitializingHomeMap = true;
+      try {
+        await initializeLocation();
+      } finally {
+        _isInitializingHomeMap = false;
+      }
+    } else {
+      await _syncMapCamera(animated: true);
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (_mapController == null) return;
+    await _syncMapCamera(animated: true);
+  }
+
+  Future<void> _syncMapCamera({required bool animated}) async {
+    final controller = _mapController;
+    if (controller == null) return;
+
+    final target = _pendingCameraTarget ?? _cameraTarget;
     _pendingCameraTarget = null;
     final position = CameraPosition(
-      target: pending,
+      target: target,
       zoom: _pendingCameraZoom,
       bearing: _pendingNavigationCamera ? _pendingCameraBearing : 0,
     );
     _pendingNavigationCamera = false;
-    unawaited(
-      controller.animateCamera(CameraUpdate.newCameraPosition(position)),
-    );
+
+    final update = CameraUpdate.newCameraPosition(position);
+    if (animated) {
+      await controller.animateCamera(update);
+    } else {
+      await controller.moveCamera(update);
+    }
   }
 
   Future<void> initializeLocation() async {
@@ -2332,7 +2404,7 @@ class HomeController extends ChangeNotifier {
     stopNearbyRidesPolling();
     stopRideStatusPolling();
     _stopPickupEtaTracking();
-    _mapController?.dispose();
+    detachMapController();
     super.dispose();
   }
 }

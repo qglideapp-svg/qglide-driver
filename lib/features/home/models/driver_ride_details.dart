@@ -1,3 +1,5 @@
+import 'nearby_ride_offer.dart';
+
 double _readDetailsDouble(dynamic value) {
   if (value is num) return value.toDouble();
   return double.tryParse(value?.toString() ?? '') ?? 0;
@@ -160,6 +162,51 @@ class DriverRideDetails {
 
   String get riderRatingDisplay => formatRideDetailsRating(riderRating);
 
+  DriverRideDetails mergeWithFetched(
+    DriverRideDetails fetched, {
+    bool forceCompleted = false,
+  }) {
+    final shouldForceCompleted =
+        forceCompleted || isCompleted || fetched.isCompleted;
+
+    final status = fetched.isCompleted
+        ? fetched.status
+        : (shouldForceCompleted
+            ? 'completed'
+            : (fetched.status.trim().isEmpty ? this.status : fetched.status));
+
+    return DriverRideDetails(
+      id: fetched.id.isNotEmpty ? fetched.id : id,
+      status: status,
+      pickupAddress: _preferNonEmpty(fetched.pickupAddress, pickupAddress),
+      dropoffAddress: _preferNonEmpty(fetched.dropoffAddress, dropoffAddress),
+      amount: fetched.amount > 0 ? fetched.amount : amount,
+      distanceKm: fetched.distanceKm > 0 ? fetched.distanceKm : distanceKm,
+      completedAt: fetched.completedAt ??
+          completedAt ??
+          (shouldForceCompleted ? DateTime.now() : null),
+      durationMinutes: fetched.durationMinutes ?? durationMinutes,
+      riderName: _preferOptionalString(fetched.riderName, riderName),
+      riderEmail: _preferOptionalString(fetched.riderEmail, riderEmail),
+      riderRating: fetched.riderRating ?? riderRating,
+    );
+  }
+
+  static String _preferNonEmpty(String primary, String fallback) {
+    final trimmed = primary.trim();
+    return trimmed.isEmpty ? fallback : trimmed;
+  }
+
+  static String? _preferOptionalString(String? primary, String? fallback) {
+    final trimmed = primary?.trim();
+    if (trimmed != null && trimmed.isNotEmpty) return trimmed;
+    final fallbackTrimmed = fallback?.trim();
+    if (fallbackTrimmed != null && fallbackTrimmed.isNotEmpty) {
+      return fallbackTrimmed;
+    }
+    return null;
+  }
+
   factory DriverRideDetails.fromRideStatus(
     Map<String, dynamic> ride, {
     double? paidAmount,
@@ -254,6 +301,31 @@ class DriverRideDetails {
       riderName: riderMap?['name']?.toString(),
       riderEmail: riderMap?['email']?.toString(),
       riderRating: riderRating,
+    );
+  }
+
+  factory DriverRideDetails.fromActiveOffer(
+    NearbyRideOffer offer, {
+    required double amount,
+  }) {
+    final requestedDropoff = offer.requestedDropoffAddress?.trim();
+    final dropoffAddress = offer.hasRiderStopRequest &&
+            requestedDropoff != null &&
+            requestedDropoff.isNotEmpty
+        ? requestedDropoff
+        : offer.dropoffAddress;
+
+    return DriverRideDetails(
+      id: offer.id,
+      status: 'completed',
+      pickupAddress: offer.pickupAddress,
+      dropoffAddress: dropoffAddress,
+      amount: amount,
+      distanceKm: offer.distanceKm ?? 0,
+      completedAt: DateTime.now(),
+      durationMinutes: offer.durationMinutes,
+      riderName: offer.riderName,
+      riderRating: offer.riderRating,
     );
   }
 }

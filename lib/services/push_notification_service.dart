@@ -74,6 +74,11 @@ class PushNotificationService {
   static String? _lastOpenedIncomingCallId;
   static DateTime? _lastOpenedIncomingAt;
 
+  /// Called when the driver opens a ride-request notification. Registered by
+  /// [HomeController] so nearby rides can be fetched and the accept panel shown.
+  static Future<void> Function(Map<String, dynamic> data)?
+      onRideRequestNotificationOpened;
+
   static Future<void> initialize() async {
     if (_initialized || kIsWeb) return;
 
@@ -399,18 +404,54 @@ class PushNotificationService {
     if (!_isAppReady) return;
     if (!isNotificationForDriver(data)) return;
 
-    if (isRideRequestNotification(data)) {
-      unawaited(RideRequestSoundService.stop());
-    }
-
     if (isIncomingCall(data)) {
       _handleIncomingCall(data);
+      return;
+    }
+
+    if (isRideRequestNotification(data)) {
+      _openRideRequestFromNotification(data);
       return;
     }
 
     final nav = appNavigatorKey.currentState;
     if (nav == null) return;
     nav.pushNamed(AppRoutes.notifications);
+  }
+
+  static void _openRideRequestFromNotification(Map<String, dynamic> data) {
+    unawaited(RideRequestSoundService.stop());
+
+    void navigate() {
+      final nav = appNavigatorKey.currentState;
+      if (nav == null) return;
+
+      var onHome = false;
+      nav.popUntil((route) {
+        onHome = route.settings.name == AppRoutes.home;
+        return onHome || route.isFirst;
+      });
+      if (!onHome) {
+        nav.pushNamed(AppRoutes.home);
+      }
+
+      unawaited(_invokeRideRequestOpenedHandler(data));
+    }
+
+    SchedulerBinding.instance.addPostFrameCallback((_) => navigate());
+  }
+
+  static Future<void> _invokeRideRequestOpenedHandler(
+    Map<String, dynamic> data,
+  ) async {
+    for (var attempt = 0; attempt < 10; attempt++) {
+      final handler = onRideRequestNotificationOpened;
+      if (handler != null) {
+        await handler(data);
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
   }
 
   static void _handleIncomingCall(Map<String, dynamic> data) {

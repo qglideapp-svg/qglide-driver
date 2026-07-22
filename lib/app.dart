@@ -29,6 +29,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     AdPlacementCache.instance.start();
+    ref.read(homeControllerProvider);
   }
 
   @override
