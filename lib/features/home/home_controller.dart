@@ -75,6 +75,7 @@ class HomeController extends ChangeNotifier {
   var _pendingNavigationCamera = false;
   var _mapSessionId = 0;
   var _isInitializingHomeMap = false;
+  var _mapSurfaceReady = false;
   DateTime? _lastNavigationCameraUpdate;
   var _cameraTarget = defaultPosition;
   var _driverPosition = defaultPosition;
@@ -211,6 +212,7 @@ class HomeController extends ChangeNotifier {
   bool get locationReady => _locationReady;
   bool get locationDenied => _locationDenied;
   int get mapSessionId => _mapSessionId;
+  bool get mapSurfaceReady => _mapSurfaceReady;
   bool get showsDriverPointer =>
       _hasDriverMarker && _activeDriverIcon != null;
   double get pickupProgress {
@@ -276,21 +278,37 @@ class HomeController extends ChangeNotifier {
   }
 
   Set<Polyline> get polylines {
-    if (!hasAcceptedRide || _fullRoutePoints.length < 2) {
+    if (!mapSurfaceReady || !hasAcceptedRide || _fullRoutePoints.length < 2) {
+      return {};
+    }
+
+    final points = _validatedRoutePoints(_activeRoutePoints);
+    if (points.length < 2) {
       return {};
     }
 
     return {
       Polyline(
         polylineId: const PolylineId('ride_route'),
-        points: _activeRoutePoints,
+        points: points,
         color: _routeColor,
         width: 5,
+        geodesic: true,
         startCap: Cap.roundCap,
         endCap: Cap.roundCap,
         jointType: JointType.round,
       ),
     };
+  }
+
+  static bool _isValidCoordinate(LatLng point) {
+    if (point.latitude.isNaN || point.longitude.isNaN) return false;
+    if (point.latitude.abs() > 90 || point.longitude.abs() > 180) return false;
+    return true;
+  }
+
+  List<LatLng> _validatedRoutePoints(List<LatLng> points) {
+    return points.where(_isValidCoordinate).toList(growable: false);
   }
 
   List<LatLng> get _activeRoutePoints {
@@ -747,7 +765,12 @@ class HomeController extends ChangeNotifier {
   Future<void> refreshDashboardOnResume() async {
     if (_isRefreshingDashboard) return;
 
-    refreshMapSurfaceOnResume();
+    if (!hasAcceptedRide) {
+      refreshMapSurfaceOnResume();
+    } else {
+      await _recoverActiveRideMapSurface();
+    }
+
     _isRefreshingDashboard = true;
     try {
       await AuthService.maintainSession();
@@ -766,8 +789,32 @@ class HomeController extends ChangeNotifier {
 
   /// Recreates the native map surface after iOS/Android destroys it in background.
   void refreshMapSurfaceOnResume() {
+    if (hasAcceptedRide) return;
     detachMapController();
     notifyListeners();
+  }
+
+  Future<void> _recoverActiveRideMapSurface() async {
+    final controller = _mapController;
+    if (controller == null) {
+      notifyListeners();
+      return;
+    }
+
+    try {
+      await _syncMapCamera(animated: false);
+      if (_hasActiveTrip) {
+        await _followDriverNavigationCamera(animated: false);
+      } else {
+        await _updateRideMapCamera(animated: false);
+      }
+    } on PlatformException {
+      detachMapController();
+      notifyListeners();
+    } catch (_) {
+      detachMapController();
+      notifyListeners();
+    }
   }
 
   Future<void> loadSignupPerformanceBonus() async {
@@ -1910,11 +1957,19 @@ class HomeController extends ChangeNotifier {
 
   void attachMapController(GoogleMapController controller) {
     _mapController = controller;
-    unawaited(_onHomeMapCreated());
+    _mapSurfaceReady = false;
+    notifyListeners();
+    unawaited(
+      _onHomeMapCreated().whenComplete(() {
+        _mapSurfaceReady = true;
+        notifyListeners();
+      }),
+    );
   }
 
   void detachMapController() {
     _mapController = null;
+    _mapSurfaceReady = false;
     _mapSessionId++;
   }
 
@@ -1958,9 +2013,13 @@ class HomeController extends ChangeNotifier {
         await controller.moveCamera(update);
       }
     } on PlatformException {
-      refreshMapSurfaceOnResume();
+      if (!hasAcceptedRide) {
+        refreshMapSurfaceOnResume();
+      }
     } catch (_) {
-      refreshMapSurfaceOnResume();
+      if (!hasAcceptedRide) {
+        refreshMapSurfaceOnResume();
+      }
     }
   }
 
@@ -2077,11 +2136,15 @@ class HomeController extends ChangeNotifier {
     }
 
     final update = CameraUpdate.newCameraPosition(position);
-    if (animated) {
-      await controller.animateCamera(update);
-    } else {
-      await controller.moveCamera(update);
-    }
+    try {
+      if (animated) {
+        await controller.animateCamera(update);
+      } else {
+        await controller.moveCamera(update);
+      }
+    } on PlatformException {
+      // Keep the active trip map alive; camera updates can fail transiently.
+    } catch (_) {}
   }
 
   void _setupRideRoute() {
