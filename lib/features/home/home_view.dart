@@ -892,14 +892,37 @@ class _MapSection extends ConsumerStatefulWidget {
 
 class _MapSectionState extends ConsumerState<_MapSection> {
   var _canRenderMap = false;
+  var _lastMapSessionId = -1;
+  ProviderSubscription<HomeController>? _controllerSubscription;
 
   @override
   void initState() {
     super.initState();
+    _lastMapSessionId = ref.read(homeControllerProvider).mapSessionId;
+    _scheduleMapRender();
+    _controllerSubscription = ref.listenManual<HomeController>(
+      homeControllerProvider,
+      (previous, next) {
+        if (next.mapSessionId == _lastMapSessionId) return;
+        _lastMapSessionId = next.mapSessionId;
+        if (!mounted) return;
+        setState(() => _canRenderMap = false);
+        _scheduleMapRender();
+      },
+    );
+  }
+
+  void _scheduleMapRender() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() => _canRenderMap = true);
     });
+  }
+
+  @override
+  void dispose() {
+    _controllerSubscription?.close();
+    super.dispose();
   }
 
   @override

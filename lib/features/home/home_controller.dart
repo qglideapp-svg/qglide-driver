@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -746,6 +747,7 @@ class HomeController extends ChangeNotifier {
   Future<void> refreshDashboardOnResume() async {
     if (_isRefreshingDashboard) return;
 
+    refreshMapSurfaceOnResume();
     _isRefreshingDashboard = true;
     try {
       await AuthService.maintainSession();
@@ -760,6 +762,12 @@ class HomeController extends ChangeNotifier {
     } finally {
       _isRefreshingDashboard = false;
     }
+  }
+
+  /// Recreates the native map surface after iOS/Android destroys it in background.
+  void refreshMapSurfaceOnResume() {
+    detachMapController();
+    notifyListeners();
   }
 
   Future<void> loadSignupPerformanceBonus() async {
@@ -1943,10 +1951,16 @@ class HomeController extends ChangeNotifier {
     _pendingNavigationCamera = false;
 
     final update = CameraUpdate.newCameraPosition(position);
-    if (animated) {
-      await controller.animateCamera(update);
-    } else {
-      await controller.moveCamera(update);
+    try {
+      if (animated) {
+        await controller.animateCamera(update);
+      } else {
+        await controller.moveCamera(update);
+      }
+    } on PlatformException {
+      refreshMapSurfaceOnResume();
+    } catch (_) {
+      refreshMapSurfaceOnResume();
     }
   }
 

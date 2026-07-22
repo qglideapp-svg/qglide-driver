@@ -53,7 +53,26 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
   Future<DriverNavigationTarget> _resolveNavigationTarget() async {
     await AuthService.ensureSessionRestored();
-    return DriverAuthNavigation.resolveSplashTarget();
+    try {
+      return await DriverAuthNavigation.resolveSplashTarget().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          if (AuthService.isLoggedIn || AuthService.hasStoredSession) {
+            return DriverNavigationTarget(route: AppRoutes.home);
+          }
+          return DriverNavigationTarget(
+            route: AuthService.unauthenticatedEntryRoute,
+          );
+        },
+      );
+    } catch (_) {
+      if (AuthService.isLoggedIn || AuthService.hasStoredSession) {
+        return DriverNavigationTarget(route: AppRoutes.home);
+      }
+      return DriverNavigationTarget(
+        route: AuthService.unauthenticatedEntryRoute,
+      );
+    }
   }
 
   void _scheduleNavigation() {
@@ -104,7 +123,18 @@ class _SplashViewState extends ConsumerState<SplashView> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: controller.isVideoReady
-          ? _SplashVideoPlayer(controller: controller.videoController!)
+          ? Stack(
+              fit: StackFit.expand,
+              children: [
+                _SplashVideoPlayer(controller: controller.videoController!),
+                if (controller.isComplete)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Colors.white70,
+                    ),
+                  ),
+              ],
+            )
           : const ColoredBox(color: Colors.black),
     );
   }
