@@ -147,11 +147,7 @@ class NearbyRideOffer {
     return normalized == 'requested' || normalized == 'pending';
   }
 
-  String get pickupTitle {
-    final eta = effectivePickupEtaMinutes;
-    if (eta == null) return 'Pickup nearby';
-    return 'Pickup Is ${eta}mins Away';
-  }
+  String get pickupTitle => pickupTitleForMinutes(effectivePickupEtaMinutes);
 
   int? get effectivePickupEtaMinutes {
     final arrival = pickupEstimatedArrivalTime;
@@ -161,10 +157,24 @@ class NearbyRideOffer {
     return pickupEtaMinutes;
   }
 
+  static String pickupTitleForMinutes(int? minutes) {
+    if (minutes == null) return 'Pickup nearby';
+    return 'Pickup Is ${minutes}mins Away';
+  }
+
   static int? minutesUntilArrival(DateTime arrivalTime) {
     final remaining = arrivalTime.toUtc().difference(DateTime.now().toUtc());
     if (remaining.isNegative) return 0;
-    return remaining.inMinutes.ceil().clamp(0, 999);
+    return (remaining.inSeconds / 60).ceil().clamp(0, 999);
+  }
+
+  static int? etaMinutesFromDistanceMeters(
+    double meters, {
+    double speedKmh = 35,
+  }) {
+    if (meters <= 50) return 0;
+    final seconds = meters / (speedKmh * 1000 / 3600);
+    return (seconds / 60).ceil().clamp(1, 999);
   }
 
   static int? resolvePickupEtaMinutes(Map<String, dynamic> ride) {
@@ -283,14 +293,17 @@ class NearbyRideOffer {
     if (previous == null || previous.id != id) return this;
 
     final retained = withRetainedDetailsFrom(previous);
+    final freshPickupEta = pickupEtaMinutes;
+    final freshArrivalTime = pickupEstimatedArrivalTime;
+
     return NearbyRideOffer(
       id: retained.id,
       status: retained.status,
       pickupAddress: retained.pickupAddress,
       dropoffAddress: retained.dropoffAddress,
-      pickupEtaMinutes: pickupEtaMinutes ?? retained.pickupEtaMinutes,
+      pickupEtaMinutes: freshPickupEta ?? retained.pickupEtaMinutes,
       pickupEstimatedArrivalTime:
-          pickupEstimatedArrivalTime ?? retained.pickupEstimatedArrivalTime,
+          freshArrivalTime ?? retained.pickupEstimatedArrivalTime,
       durationMinutes: retained.durationMinutes,
       estimatedFare: retained.estimatedFare,
       distanceKm: retained.distanceKm,

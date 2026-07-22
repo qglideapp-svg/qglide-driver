@@ -99,6 +99,7 @@ class HomeController extends ChangeNotifier {
   Timer? _rideStatusPollingTimer;
   Timer? _pickupEtaTickTimer;
   Timer? _locationUpdateTimer;
+  int? _lastLivePickupEtaMinutes;
   Timer? _driverAnimationTimer;
   StreamSubscription<Position>? _positionStreamSubscription;
   final _rideRealtimeService = RideRealtimeService();
@@ -194,6 +195,30 @@ class HomeController extends ChangeNotifier {
   bool get hasActivePickup => _hasActivePickup;
   bool get hasActiveRide => _hasActiveRide;
   bool get hasActiveTrip => _hasActiveTrip;
+
+  int? get livePickupEtaMinutes {
+    if (!_hasActivePickup) return null;
+
+    final offer = _acceptedRideOffer;
+    if (offer == null) return null;
+
+    final pickup = offer.pickupLatLng;
+    if (pickup != null && _locationReady) {
+      final meters = Geolocator.distanceBetween(
+        _driverPosition.latitude,
+        _driverPosition.longitude,
+        pickup.latitude,
+        pickup.longitude,
+      );
+      return NearbyRideOffer.etaMinutesFromDistanceMeters(meters);
+    }
+
+    return offer.effectivePickupEtaMinutes;
+  }
+
+  String get activePickupTitle =>
+      NearbyRideOffer.pickupTitleForMinutes(livePickupEtaMinutes);
+
   RiderStopNotification? get pendingRiderStopNotification =>
       _pendingRiderStopNotification;
   AddedStopArrivalNotification? get pendingAddedStopArrival =>
@@ -1054,11 +1079,12 @@ class HomeController extends ChangeNotifier {
 
   void _startPickupEtaTracking(String rideId) {
     _pickupEtaTickTimer?.cancel();
+    _lastLivePickupEtaMinutes = livePickupEtaMinutes;
     _pickupEtaTickTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 15),
       (_) {
         if (!_hasActivePickup || _acceptedRideOffer == null) return;
-        notifyListeners();
+        _maybeNotifyPickupEtaChanged(force: true);
       },
     );
 
@@ -1077,7 +1103,21 @@ class HomeController extends ChangeNotifier {
   void _stopPickupEtaTracking() {
     _pickupEtaTickTimer?.cancel();
     _pickupEtaTickTimer = null;
+    _lastLivePickupEtaMinutes = null;
     unawaited(_rideRealtimeService.unsubscribe());
+  }
+
+  void _maybeNotifyPickupEtaChanged({bool force = false}) {
+    if (!_hasActivePickup) {
+      _lastLivePickupEtaMinutes = null;
+      return;
+    }
+
+    final eta = livePickupEtaMinutes;
+    if (!force && eta == _lastLivePickupEtaMinutes) return;
+
+    _lastLivePickupEtaMinutes = eta;
+    notifyListeners();
   }
 
   void _applyRideRealtimeUpdate(Map<String, dynamic> ride) {
@@ -2445,6 +2485,9 @@ class HomeController extends ChangeNotifier {
         checkArrival ? _checkAddedStopArrival(position) : false;
     if (_hasActiveTrip && changed) {
       unawaited(_followDriverNavigationCamera());
+    }
+    if (_hasActivePickup) {
+      _maybeNotifyPickupEtaChanged();
     }
     if (notify && (changed || hasAcceptedRide || arrivalTriggered)) {
       notifyListeners();

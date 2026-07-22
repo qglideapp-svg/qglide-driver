@@ -673,6 +673,7 @@ class _HomeViewState extends ConsumerState<HomeView>
                     _controller.activePickupOffer?.id ?? 'active_pickup',
                   ),
                   offer: _controller.activePickupOffer!,
+                  pickupTitle: _controller.activePickupTitle,
                   progress: _controller.pickupProgress,
                   isCompletingPickup: _controller.isCompletingPickup,
                   isCancellingRide: _controller.isCancellingRide,

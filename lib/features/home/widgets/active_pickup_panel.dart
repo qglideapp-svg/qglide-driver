@@ -11,6 +11,7 @@ class ActivePickupPanel extends StatelessWidget {
   const ActivePickupPanel({
     super.key,
     required this.offer,
+    required this.pickupTitle,
     required this.onCancelRide,
     required this.onPickupCompleted,
     required this.onOpenWithWaze,
@@ -22,6 +23,7 @@ class ActivePickupPanel extends StatelessWidget {
   });
 
   final NearbyRideOffer offer;
+  final String pickupTitle;
   final VoidCallback onCancelRide;
   final VoidCallback onPickupCompleted;
   final VoidCallback onOpenWithWaze;
@@ -54,7 +56,7 @@ class ActivePickupPanel extends StatelessWidget {
             riderPhotoUrl: offer.riderPhotoUrl,
           ),
           ResponsiveGap(14),
-          RidePickupTitle(title: offer.pickupTitle),
+          RidePickupTitle(title: pickupTitle),
           ResponsiveGap(10),
           RideLocationPill(label: offer.pickupAddress),
           ResponsiveGap(16),
