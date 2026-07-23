@@ -219,6 +219,21 @@ class NearbyRideOffer {
     return '${distance.toStringAsFixed(1)}km';
   }
 
+  static NearbyRideOffer? fromNotificationData(Map<String, dynamic> data) {
+    final normalized = Map<String, dynamic>.from(data);
+    final rideId =
+        normalized['ride_id']?.toString() ?? normalized['id']?.toString();
+    if (rideId == null || rideId.isEmpty) return null;
+
+    normalized['id'] = rideId;
+    if (normalized['rider_photo'] != null &&
+        normalized['rider_photo_url'] == null) {
+      normalized['rider_photo_url'] = normalized['rider_photo'];
+    }
+
+    return fromMap(normalized);
+  }
+
   static NearbyRideOffer? fromMap(Map<String, dynamic> ride) {
     final id = ride['id']?.toString();
     if (id == null || id.isEmpty) return null;

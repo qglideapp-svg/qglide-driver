@@ -41,16 +41,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
 
   if (PushNotificationService.isRideRequestNotification(data)) {
-    final rideId = data['ride_id']?.toString() ?? '';
-    await PushNotificationService.showRideRequestNotification(
-      rideId: rideId,
-      pickupAddress: data['pickup_address']?.toString() ?? '',
-      dropoffAddress: data['dropoff_address']?.toString() ?? '',
-      riderName: data['rider_name']?.toString(),
-    );
-    if (rideId.isNotEmpty) {
-      await RideRequestSoundService.playForBackgroundAlert(rideId);
-    }
+    await PushNotificationService.showRideRequestNotification(data: data);
     return;
   }
 
@@ -69,6 +60,7 @@ class PushNotificationService {
 
   static var _initialized = false;
   static var _isAppReady = false;
+  static Map<String, dynamic>? _pendingNotificationData;
   static String? _cachedDeviceId;
   static String? _cachedDeviceType;
   static String? _lastOpenedIncomingCallId;
@@ -106,10 +98,7 @@ class PushNotificationService {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        _isAppReady = true;
-        _setupNotificationOpenHandlers();
-      });
+      _markAppReady();
     });
 
     _initialized = true;
@@ -275,12 +264,24 @@ class PushNotificationService {
     }
   }
 
+  static void _markAppReady() {
+    if (_isAppReady) return;
+    _isAppReady = true;
+    _setupNotificationOpenHandlers();
+
+    final pending = _pendingNotificationData;
+    if (pending == null) return;
+    _pendingNotificationData = null;
+    _processNotificationData(pending);
+  }
+
   static Future<void> showRideRequestNotification({
-    required String rideId,
-    required String pickupAddress,
-    required String dropoffAddress,
-    String? riderName,
+    required Map<String, dynamic> data,
   }) async {
+    final rideId = data['ride_id']?.toString() ?? '';
+    final pickupAddress = data['pickup_address']?.toString() ?? '';
+    final dropoffAddress = data['dropoff_address']?.toString() ?? '';
+    final riderName = data['rider_name']?.toString();
     final s = AppStrings.current();
     final title = s.newRideRequestTitle(riderName: riderName);
     final body = s.newRideRequestBody(
@@ -288,20 +289,19 @@ class PushNotificationService {
       dropoffAddress: dropoffAddress,
     );
 
+    final payload = Map<String, dynamic>.from(data);
+    payload['type'] = 'new_ride_request';
+    payload['target_user_type'] = _driverUserType;
+    if (rideId.isNotEmpty) {
+      payload['ride_id'] = rideId;
+    }
+
     await _localNotifications.show(
-      rideId.hashCode,
+      rideId.isEmpty ? data.hashCode : rideId.hashCode,
       title,
       body,
       _rideRequestNotificationDetails(),
-      payload: jsonEncode({
-        'type': 'new_ride_request',
-        'target_user_type': _driverUserType,
-        'ride_id': rideId,
-        'pickup_address': pickupAddress,
-        'dropoff_address': dropoffAddress,
-        if (riderName != null && riderName.trim().isNotEmpty)
-          'rider_name': riderName.trim(),
-      }),
+      payload: jsonEncode(payload),
     );
   }
 
@@ -365,7 +365,7 @@ class PushNotificationService {
       _messaging.getInitialMessage().then((message) {
         if (message == null) return;
         if (!isNotificationForDriver(message.data)) return;
-        Future.delayed(const Duration(milliseconds: 500), () {
+        Future.delayed(const Duration(milliseconds: 100), () {
           _handleNotificationData(Map<String, dynamic>.from(message.data));
         });
       }),
@@ -387,12 +387,7 @@ class PushNotificationService {
         unawaited(RideRequestSoundService.play(rideId));
       }
       if (Platform.isAndroid) {
-        await showRideRequestNotification(
-          rideId: rideId,
-          pickupAddress: data['pickup_address']?.toString() ?? '',
-          dropoffAddress: data['dropoff_address']?.toString() ?? '',
-          riderName: data['rider_name']?.toString(),
-        );
+        await showRideRequestNotification(data: data);
       }
       return;
     }
@@ -401,7 +396,14 @@ class PushNotificationService {
   }
 
   static void _handleNotificationData(Map<String, dynamic> data) {
-    if (!_isAppReady) return;
+    if (!_isAppReady) {
+      _pendingNotificationData = data;
+      return;
+    }
+    _processNotificationData(data);
+  }
+
+  static void _processNotificationData(Map<String, dynamic> data) {
     if (!isNotificationForDriver(data)) return;
 
     if (isIncomingCall(data)) {
@@ -421,6 +423,7 @@ class PushNotificationService {
 
   static void _openRideRequestFromNotification(Map<String, dynamic> data) {
     unawaited(RideRequestSoundService.stop());
+    unawaited(_invokeRideRequestOpenedHandler(data));
 
     void navigate() {
       final nav = appNavigatorKey.currentState;
@@ -434,8 +437,6 @@ class PushNotificationService {
       if (!onHome) {
         nav.pushNamed(AppRoutes.home);
       }
-
-      unawaited(_invokeRideRequestOpenedHandler(data));
     }
 
     SchedulerBinding.instance.addPostFrameCallback((_) => navigate());
@@ -444,13 +445,13 @@ class PushNotificationService {
   static Future<void> _invokeRideRequestOpenedHandler(
     Map<String, dynamic> data,
   ) async {
-    for (var attempt = 0; attempt < 10; attempt++) {
+    for (var attempt = 0; attempt < 15; attempt++) {
       final handler = onRideRequestNotificationOpened;
       if (handler != null) {
         await handler(data);
         return;
       }
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
   }
 

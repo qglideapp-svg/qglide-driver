@@ -1245,6 +1245,7 @@ class HomeController extends ChangeNotifier {
       _currentRideOffer = null;
       _hasActivePickup = true;
       _hasActiveRide = false;
+      unawaited(RideRequestSoundService.suppressPlayback());
       stopNearbyRidesPolling();
       if (enteringPickup) {
         _setupRideRoute();
@@ -1431,6 +1432,7 @@ class HomeController extends ChangeNotifier {
     NearbyRideOffer offer, {
     bool prepareMap = false,
   }) {
+    unawaited(RideRequestSoundService.stop());
     _isPendingRideAcceptance = false;
     _pendingAcceptRideId = null;
     _acceptedRideOffer = offer;
@@ -1457,6 +1459,7 @@ class HomeController extends ChangeNotifier {
     NearbyRideOffer offer, {
     bool prepareMap = false,
   }) {
+    unawaited(RideRequestSoundService.stop());
     _isPendingRideAcceptance = false;
     _pendingAcceptRideId = null;
     _acceptedRideOffer = offer;
@@ -1504,6 +1507,7 @@ class HomeController extends ChangeNotifier {
     _pendingAddedStopArrival = null;
     _stopPickupEtaTracking();
     unawaited(AddedStopArrivalSoundService.stop());
+    RideRequestSoundService.allowPlayback();
     if (_isOnline) {
       startNearbyRidesPolling();
       startRideStatusPolling();
@@ -1545,7 +1549,7 @@ class HomeController extends ChangeNotifier {
     }
   }
 
-  Future<void> _fetchNearbyRides() async {
+  Future<void> _fetchNearbyRides({bool playSound = true}) async {
     if (!_isOnline ||
         hasAcceptedRide ||
         _isAcceptingRide ||
@@ -1589,8 +1593,10 @@ class HomeController extends ChangeNotifier {
 
       _showRideRequest(offer);
 
-      if (shouldNotify) {
+      if (shouldNotify && playSound) {
         unawaited(RideRequestSoundService.play(offer.id));
+      }
+      if (shouldNotify) {
         notifyListeners();
       }
     } finally {
@@ -1626,18 +1632,88 @@ class HomeController extends ChangeNotifier {
   Future<void> handleRideRequestNotificationOpened(
     Map<String, dynamic> data,
   ) async {
+    final previewOffer = NearbyRideOffer.fromNotificationData(data);
+    if (previewOffer != null &&
+        previewOffer.isPending &&
+        !hasAcceptedRide &&
+        !_isAcceptingRide &&
+        !_isPendingRideAcceptance) {
+      _showRideRequest(previewOffer);
+      notifyListeners();
+    }
+
+    unawaited(_refreshRideRequestAfterNotificationOpened(data));
+  }
+
+  Future<void> _refreshRideRequestAfterNotificationOpened(
+    Map<String, dynamic> data,
+  ) async {
     if (!_hasSyncedOnlineFromStats && !_isUpdatingOnlineStatus) {
-      await loadTodayStats();
+      unawaited(loadTodayStats());
     } else if (_isOnline) {
       startNearbyRidesPolling();
     }
 
-    if (!_locationReady) {
-      await _ensureDriverPositionForPolling();
+    await _refreshRideRequestDetails(
+      rideId: data['ride_id']?.toString(),
+    );
+  }
+
+  Future<void> _refreshRideRequestDetails({String? rideId}) async {
+    if (hasAcceptedRide ||
+        _isAcceptingRide ||
+        _isPendingRideAcceptance ||
+        _isFetchingNearbyRides) {
+      return;
     }
 
-    await _fetchNearbyRides();
-    notifyListeners();
+    _isFetchingNearbyRides = true;
+    try {
+      await _ensureDriverPositionForPolling();
+
+      final response = await AuthService.getNearbyRides(
+        driverLat: _driverPosition.latitude,
+        driverLng: _driverPosition.longitude,
+      );
+
+      final rides = AuthService.extractNearbyRides(response);
+      if (rides.isEmpty) {
+        if (_hasRideRequest && rideId == null) {
+          dismissRideRequest();
+        }
+        return;
+      }
+
+      Map<String, dynamic>? rideMap;
+      if (rideId != null && rideId.isNotEmpty) {
+        for (final ride in rides) {
+          if (ride['id']?.toString() == rideId) {
+            rideMap = ride;
+            break;
+          }
+        }
+      }
+      rideMap ??= rides.first;
+
+      final offer = NearbyRideOffer.fromMap(rideMap);
+      if (offer == null || !offer.isPending) {
+        if (_hasRideRequest &&
+            rideId != null &&
+            _currentRideOffer?.id == rideId) {
+          dismissRideRequest();
+        }
+        return;
+      }
+
+      if (hasAcceptedRide || _isAcceptingRide || _isPendingRideAcceptance) {
+        return;
+      }
+
+      _showRideRequest(offer.withRetainedDetailsFrom(_currentRideOffer));
+      notifyListeners();
+    } finally {
+      _isFetchingNearbyRides = false;
+    }
   }
 
   void dismissRideRequest() {
@@ -1681,6 +1757,7 @@ class HomeController extends ChangeNotifier {
 
     _isAcceptingRide = true;
     stopNearbyRidesPolling();
+    await RideRequestSoundService.suppressPlayback();
     notifyListeners();
 
     try {
@@ -1718,7 +1795,6 @@ class HomeController extends ChangeNotifier {
       if (stopNotification != null) {
         _pendingRiderStopNotification = stopNotification;
       }
-      unawaited(RideRequestSoundService.stop());
       _persistAcceptedRide(offer);
       _startPickupEtaTracking(offer.id);
       startRideStatusPolling();
@@ -1727,6 +1803,9 @@ class HomeController extends ChangeNotifier {
       return null;
     } finally {
       _isAcceptingRide = false;
+      if (!_isPendingRideAcceptance) {
+        RideRequestSoundService.allowPlayback();
+      }
       notifyListeners();
     }
   }

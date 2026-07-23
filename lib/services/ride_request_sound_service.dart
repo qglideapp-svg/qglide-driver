@@ -13,8 +13,9 @@ class RideRequestSoundService {
   static DateTime? _lastPlayedAt;
   static var _isLooping = false;
   static var _initialized = false;
+  static var _playbackSuppressed = false;
+  static var _playGeneration = 0;
   static Timer? _stopTimer;
-  static Completer<void>? _playbackCompleter;
 
   static Future<void> ensureInitialized() async {
     if (_initialized) return;
@@ -37,18 +38,23 @@ class RideRequestSoundService {
     _initialized = true;
   }
 
+  /// Prevents new ride-request sounds while the driver has accepted or is on a ride.
+  static Future<void> suppressPlayback() async {
+    _playbackSuppressed = true;
+    await stop();
+  }
+
+  static void allowPlayback() {
+    _playbackSuppressed = false;
+  }
+
   static Future<void> play(String rideId) async {
     await _startPlayback(rideId);
   }
 
-  static Future<void> playForBackgroundAlert(String rideId) async {
-    await _startPlayback(rideId);
-    final completer = _playbackCompleter;
-    if (completer == null) return;
-    await completer.future;
-  }
-
   static Future<void> _startPlayback(String rideId) async {
+    if (_playbackSuppressed) return;
+
     final trimmedRideId = rideId.trim();
     if (trimmedRideId.isEmpty) return;
 
@@ -62,47 +68,42 @@ class RideRequestSoundService {
 
     _lastRideId = trimmedRideId;
     _lastPlayedAt = now;
+    final generation = ++_playGeneration;
 
     try {
       await ensureInitialized();
+      if (_playbackSuppressed || generation != _playGeneration) return;
+
       _stopTimer?.cancel();
-      _completePlaybackWait();
-      _playbackCompleter = Completer<void>();
       await _player.stop();
       await _player.setReleaseMode(ReleaseMode.loop);
       await _player.play(AssetSource(AppConstants.rideRequestAlertSoundAsset));
+
+      if (_playbackSuppressed || generation != _playGeneration) {
+        await _player.stop();
+        return;
+      }
+
       _isLooping = true;
       _stopTimer = Timer(AppConstants.rideRequestAcceptDuration, () {
         unawaited(stop());
       });
     } catch (_) {
+      if (generation != _playGeneration) return;
       _isLooping = false;
       _stopTimer?.cancel();
       _stopTimer = null;
-      _completePlaybackWait();
       await SystemSound.play(SystemSoundType.alert);
     }
   }
 
   static Future<void> stop() async {
+    _playGeneration++;
     _stopTimer?.cancel();
     _stopTimer = null;
-    if (!_isLooping) {
-      _completePlaybackWait();
-      return;
-    }
     try {
       await _player.stop();
     } catch (_) {}
     _isLooping = false;
-    _completePlaybackWait();
-  }
-
-  static void _completePlaybackWait() {
-    final completer = _playbackCompleter;
-    if (completer != null && !completer.isCompleted) {
-      completer.complete();
-    }
-    _playbackCompleter = null;
   }
 }
