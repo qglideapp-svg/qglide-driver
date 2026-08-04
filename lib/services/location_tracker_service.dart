@@ -301,37 +301,10 @@ class LocationTrackerService {
     return null;
   }
 
-  static var _backgroundAccessPromptAttempted = false;
-
-  /// Requests Always / background location after When-In-Use is granted.
-  ///
-  /// Prompts at most once per app session so system permission dialogs do not
-  /// thrash app lifecycle (pause → resume → reload loops). Going online must
-  /// not fail if Always is denied — foreground / FGS tracking still works.
-  static Future<bool> ensureBackgroundLocationAccess() async {
-    final access = await _ensureLocationAccess(requestIfNeeded: true);
-    if (access != null) return false;
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.always) return true;
-
-    if (_backgroundAccessPromptAttempted) {
-      return permission == LocationPermission.always;
-    }
-    _backgroundAccessPromptAttempted = true;
-
-    if (permission == LocationPermission.whileInUse) {
-      // Android 10+ / iOS: second prompt upgrades to Always when declared.
-      permission = await Geolocator.requestPermission();
-    }
-
-    return permission == LocationPermission.always;
-  }
-
   /// Continuous GPS updates for live map movement while the UI is alive.
   ///
-  /// Background/killed heartbeats are handled by
-  /// [DriverOnlineForegroundService] (sticky FGS), not this stream.
+  /// When the driver is online with the app backgrounded, location heartbeats
+  /// are handled by [DriverOnlineForegroundService] (sticky location FGS).
   static Stream<Position> watchPosition({required bool enRoute}) {
     if (Platform.isAndroid) {
       return Geolocator.getPositionStream(

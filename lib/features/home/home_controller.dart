@@ -441,8 +441,6 @@ class HomeController extends ChangeNotifier {
         notifyListeners();
         if (_isOnline) {
           unawaited(PushNotificationService.registerTokenIfLoggedIn());
-          // After explicit go-online only — never from resume/stats paths.
-          unawaited(_requestBackgroundLocationAfterGoOnline());
         }
         unawaited(loadTodayStats());
         return null;
@@ -482,15 +480,6 @@ class HomeController extends ChangeNotifier {
     if (!_openedRideRequestFromNotification) {
       dismissRideRequest();
     }
-  }
-
-  /// One-shot Always permission after the driver explicitly goes online.
-  /// Must not run from resume/stats refresh paths (permission UI pauses the
-  /// app and would loop with [refreshDashboardOnResume]).
-  Future<void> _requestBackgroundLocationAfterGoOnline() async {
-    await LocationTrackerService.ensureBackgroundLocationAccess();
-    if (!_isOnline && !_isEnRouteForLocation) return;
-    startLocationUpdates();
   }
 
   Duration _resolveLocationUpdateInterval() {

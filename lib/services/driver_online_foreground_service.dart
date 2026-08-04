@@ -17,6 +17,7 @@ void driverOnlineForegroundStartCallback() {
 
 /// Keeps the driver available after the UI is backgrounded or swiped away by
 /// posting location heartbeats from a sticky Android/iOS foreground task.
+/// Uses foreground location access (FGS), not ACCESS_BACKGROUND_LOCATION.
 class DriverOnlineTaskHandler extends TaskHandler {
   var _heartbeatInFlight = false;
 
