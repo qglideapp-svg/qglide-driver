@@ -343,6 +343,12 @@ class AppStrings {
 
   // ── Home / Dashboard ────────────────────────────────────────────────────────
   String get youAreOnline => _t('You are online', 'أنت متصل');
+  String get backgroundLocationNotificationTitle =>
+      _t('You are online', 'أنت متصل');
+  String get backgroundLocationNotificationBody => _t(
+        'Receiving ride requests',
+        'جارٍ استقبال طلبات الرحلات',
+      );
   String get youAreOffline => _t('You are offline', 'أنت غير متصل');
   String get goOnline => _t('Go Online', 'الاتصال');
   String get goOffline => _t('Go Offline', 'قطع الاتصال');
@@ -584,6 +590,42 @@ class AppStrings {
         'لم تُضف مكافآت إحالة إلى رصيدك بعد',
       );
   String get referDriverHowItWorks => _t('How it works', 'كيف يعمل');
+  String get referDriverReferredDrivers =>
+      _t('Referred drivers', 'السائقون المُحالون');
+  String get referDriverTotalReferrals =>
+      _t('Total referrals', 'إجمالي الإحالات');
+  String get referDriverTotalReferralsHint => _t(
+        'Drivers who signed up with your code',
+        'السائقون الذين سجّلوا برمزك',
+      );
+  String referDriverRidesProgress(int completed, int required) => _t(
+        '$completed of $required rides',
+        '$completed من $required رحلة',
+      );
+  String referDriverRidesRemaining(int remaining) => _t(
+        '$remaining rides remaining',
+        'متبقٍ $remaining رحلة',
+      );
+  String referDriverDaysRemaining(int days) => _t(
+        '$days days left in bounty window',
+        'متبقٍ $days يوم في نافذة المكافأة',
+      );
+  String get referDriverWindowExpired => _t(
+        'Bounty window expired',
+        'انتهت نافذة المكافأة',
+      );
+  String get referDriverStatusInProgress =>
+      _t('In progress', 'قيد التقدم');
+  String get referDriverStatusQualified => _t('Qualified', 'مؤهل');
+  String get referDriverStatusPaid => _t('Paid', 'مدفوع');
+  String referDriverJoinedOn(String date) =>
+      _t('Joined $date', 'انضم $date');
+  String referDriverQualifiedOn(String date) =>
+      _t('Qualified $date', 'تأهل $date');
+  String get referDriverNoReferredDriversYet => _t(
+        'No referred drivers yet. Share your code to start tracking ride progress here.',
+        'لا يوجد سائقون مُحالون بعد. شارك رمزك لبدء تتبع تقدم الرحلات هنا.',
+      );
   String get referDriverHowItWorksStep1 => _t(
         'You refer another driver with your code',
         'تُحيل سائقاً آخر برمزك',
@@ -603,6 +645,10 @@ class AppStrings {
   String get referDriverProgramRequirement => _t(
         'Each referred driver must complete 100 rides within their first month for you to receive the balance credit',
         'يجب على كل سائق تُحيله إكمال 100 رحلة في الشهر الأول لتحصل على إضافة الرصيد',
+      );
+  String referDriverProgramRequirementFor(int minRides, int windowDays) => _t(
+        'Each referred driver must complete $minRides rides within $windowDays days of signing up for you to receive the balance credit',
+        'يجب على كل سائق تُحيله إكمال $minRides رحلة خلال $windowDays يوماً من التسجيل لتحصل على إضافة الرصيد',
       );
   String get referDriverNoReferralsYet => _t(
         'No referred drivers have qualified yet. QAR 100 is added to your balance when a driver you refer completes 100 rides in their first month.',

@@ -25,6 +25,8 @@ class ApiConfig {
       '$supabaseUrl/functions/v1/driver-incentive-progress';
   static const driverReferralGenerateUrl =
       '$supabaseUrl/functions/v1/driver-referral-generate';
+  static const driverReferralProgressUrl =
+      '$supabaseUrl/functions/v1/driver-referral-progress';
   static const getUserProfileUrl = '$supabaseUrl/functions/v1/get-user-profile';
   static const editProfileUrl = '$supabaseUrl/functions/v1/edit-profile';
   static const uploadAvatarUrl = '$supabaseUrl/functions/v1/upload-avatar';
@@ -50,6 +52,9 @@ class ApiConfig {
   static const rtcZegoTokenUrl = '$supabaseUrl/functions/v1/rtc-zego-token';
   static const rtcZegoRefreshUrl = '$supabaseUrl/functions/v1/rtc-zego-refresh';
   static const registerFcmTokenUrl = '$supabaseUrl/functions/v1/register-fcm-token';
+  // Ride-request pushes must be data-only FCM (no notification/aps.alert block) with
+  // type=new_ride_request, ride_id, pickup_address, dropoff_address, target_user_type=driver.
+  // iOS fallback: aps.category = driver_ride_request_actions.
   static const adPlacementUrl = '$supabaseUrl/functions/v1/ad-placement';
   static const riderNotificationsUrl = '$supabaseUrl/functions/v1/rider-notifications';
   static const mySupportTicketsUrl =

@@ -3,6 +3,7 @@ class AppConstants {
 
   static const appTitle = 'QGlide Driver';
   static const splashVideoAsset = 'assets/anime.mp4';
+  static const splashPosterAsset = 'assets/splash_poster.png';
   static const logoAsset = 'assets/app_logo.png';
   static const logoIconAsset = 'assets/app_logo.png';
   static const googleLogoAsset = 'assets/google_logo.svg';
@@ -42,4 +43,7 @@ class AppConstants {
       '527663__iwanplays__blinking-bell-loop.wav';
   static const rideRequestNotificationSound = 'ride_request_alert';
   static const rideRequestNotificationChannelId = 'driver_ride_requests';
+  static const rideRequestNotificationCategoryId = 'driver_ride_request_actions';
+  static const rideRequestNotificationActionAccept = 'ride_accept';
+  static const rideRequestNotificationActionIgnore = 'ride_ignore';
 }

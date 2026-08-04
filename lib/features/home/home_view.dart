@@ -31,6 +31,7 @@ import '../ride/chat/ride_chat_view.dart';
 import '../ride/widgets/dial_modal.dart';
 import '../../services/ad_placement_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/screen_wake_service.dart';
 import 'widgets/driver_ad_placement_banner.dart';
 import 'widgets/driver_home_ad_modal.dart';
 import 'widgets/ride_dashboard_panel.dart';
@@ -64,6 +65,7 @@ class _HomeViewState extends ConsumerState<HomeView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(ScreenWakeService.enable());
     _controller.addListener(_onControllerUpdated);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -72,6 +74,7 @@ class _HomeViewState extends ConsumerState<HomeView>
         if (!mounted) return;
 
         final controller = ref.read(homeControllerProvider);
+        controller.processPendingRideNotificationHandlers();
         if (!mounted) return;
         await controller.restoreActiveRideOnLaunch();
         if (!mounted) return;
@@ -146,6 +149,7 @@ class _HomeViewState extends ConsumerState<HomeView>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(ScreenWakeService.disable());
     _homeAdPollTimer?.cancel();
     _controller.removeListener(_onControllerUpdated);
     _controller.detachMapController();
@@ -155,6 +159,7 @@ class _HomeViewState extends ConsumerState<HomeView>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(ScreenWakeService.enable());
       unawaited(_controller.refreshDashboardOnResume());
     }
   }

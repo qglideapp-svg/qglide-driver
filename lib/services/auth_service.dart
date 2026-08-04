@@ -26,6 +26,7 @@ import '../features/auth/verification/verification_args.dart';
 import '../routes/app_routes.dart';
 import 'driver_status_service.dart';
 import 'phone_verification_service.dart';
+import 'screen_wake_service.dart';
 
 class OAuthSignupPrefill {
   const OAuthSignupPrefill({
@@ -105,7 +106,8 @@ class AuthService {
     }
   }
 
-  static Future<void> loadStoredSession() async {
+  /// Reads persisted session fields from disk only — no network refresh.
+  static Future<void> loadStoredSessionFromDisk() async {
     final prefs = await _prefs();
     if (prefs == null) return;
 
@@ -123,7 +125,10 @@ class AuthService {
     final storedReferralActive = prefs.getBool(_referralActiveKey);
     _referralActive = storedReferralActive ??
         (_referralCode != null && _referralCode!.trim().isNotEmpty);
+  }
 
+  static Future<void> loadStoredSession() async {
+    await loadStoredSessionFromDisk();
     await ensureSessionRestored();
 
     if (isLoggedIn) {
@@ -442,6 +447,7 @@ class AuthService {
   }
 
   static Future<void> signOut() async {
+    await ScreenWakeService.disable();
     await invalidateStoredSession();
     await DriverStatusService.clearStored();
     await clearPendingVerificationContext();
@@ -2643,8 +2649,37 @@ class AuthService {
     final data = response['data'];
     if (data is! Map<String, dynamic>) return null;
 
-    final payload = _findIncentiveProgressRoot(data) ?? data;
-    return DriverReferralProgress.fromIncentiveProgressData(payload);
+    return DriverReferralProgress.fromReferralProgressData(data);
+  }
+
+  static Future<Map<String, dynamic>> getDriverReferralProgress() async {
+    await refreshSessionIfNeeded();
+
+    final headers = _authorizedHeaders;
+    if (headers == null) {
+      return {
+        'success': false,
+        'error': {'message': 'Not logged in. Please sign in again.'},
+      };
+    }
+
+    try {
+      final response = await http
+          .get(
+            Uri.parse(ApiConfig.driverReferralProgressUrl),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final result = _handleResponse(response);
+      await syncReferralFromAnyResponse(result);
+      return result;
+    } catch (e) {
+      return {
+        'success': false,
+        'error': {'message': 'Network error: $e'},
+      };
+    }
   }
 
   static Future<Map<String, dynamic>> getDriverIncentiveProgress() async {

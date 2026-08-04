@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../app_bootstrap.dart';
+import '../../config/app_constants.dart';
 import '../../core/providers/app_providers.dart';
 import '../../routes/app_routes.dart';
 import '../../services/auth_service.dart';
@@ -23,11 +25,16 @@ class _SplashViewState extends ConsumerState<SplashView> {
   var _hasNavigated = false;
   ProviderSubscription<SplashController>? _splashSubscription;
   Future<DriverNavigationTarget>? _navigationTargetFuture;
+  Timer? _startupFallbackTimer;
 
   @override
   void initState() {
     super.initState();
     _navigationTargetFuture = _resolveNavigationTarget();
+    _startupFallbackTimer = Timer(const Duration(seconds: 15), () {
+      if (!mounted || _hasNavigated) return;
+      _scheduleNavigation();
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -47,6 +54,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
   @override
   void dispose() {
+    _startupFallbackTimer?.cancel();
     _splashSubscription?.close();
     super.dispose();
   }
@@ -78,17 +86,25 @@ class _SplashViewState extends ConsumerState<SplashView> {
   void _scheduleNavigation() {
     if (_hasNavigated || !mounted) return;
     _hasNavigated = true;
+    _startupFallbackTimer?.cancel();
+    StartupNavigationTracker.markNavigated();
     unawaited(_navigateAfterSplash());
   }
 
   Future<void> _navigateAfterSplash() async {
     DriverNavigationTarget target;
-    try {
-      target = await (_navigationTargetFuture ?? _resolveNavigationTarget());
-    } catch (error) {
-      target = DriverNavigationTarget(
-        route: AuthService.unauthenticatedEntryRoute,
-      );
+    if (PushNotificationService.shouldOpenHomeForRideLaunch &&
+        (AuthService.isLoggedIn || AuthService.hasStoredSession)) {
+      await AuthService.ensureSessionRestored();
+      target = const DriverNavigationTarget(route: AppRoutes.home);
+    } else {
+      try {
+        target = await (_navigationTargetFuture ?? _resolveNavigationTarget());
+      } catch (error) {
+        target = DriverNavigationTarget(
+          route: AuthService.unauthenticatedEntryRoute,
+        );
+      }
     }
 
     if (AuthService.isLoggedIn) {
@@ -122,20 +138,25 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: controller.isVideoReady
-          ? Stack(
-              fit: StackFit.expand,
-              children: [
-                _SplashVideoPlayer(controller: controller.videoController!),
-                if (controller.isComplete)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Colors.white70,
-                    ),
-                  ),
-              ],
-            )
-          : const ColoredBox(color: Colors.black),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (!controller.isVideoReady)
+            Image.asset(
+              AppConstants.splashPosterAsset,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+            ),
+          if (controller.hasVideoController)
+            _SplashVideoPlayer(controller: controller.videoController!),
+          if (controller.isComplete)
+            const Center(
+              child: CircularProgressIndicator(
+                color: Colors.white70,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

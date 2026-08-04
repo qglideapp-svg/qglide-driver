@@ -48,7 +48,7 @@ class _ReferDriverProgressViewState extends State<ReferDriverProgressView> {
       setState(() => _errorMessage = null);
     }
 
-    final response = await AuthService.getDriverIncentiveProgress();
+    final response = await AuthService.getDriverReferralProgress();
     if (!mounted) return;
 
     final parsed = AuthService.extractDriverReferralProgress(response);
@@ -145,14 +145,27 @@ class _ReferDriverProgressViewState extends State<ReferDriverProgressView> {
                             if (progress != null) ...[
                               Builder(
                                 builder: (context) {
+                                  final program = progress.program;
+                                  final bountyQar = program?.bountyQar ??
+                                      DriverReferralProgramTerms.bountyQar;
+                                  final minRides = program?.minRides ??
+                                      DriverReferralProgramTerms.minRides;
+                                  final windowDays = program?.windowDays ??
+                                      DriverReferralProgramTerms.windowDays;
                                   final bountyLabel = s.formatQar(
-                                    DriverReferralProgramTerms.bountyQar,
+                                    bountyQar,
                                     decimals: 0,
                                   );
                                   final balanceReceivedLabel = s.formatQar(
-                                    progress.totalBalanceCredited,
+                                    progress.totalCommissionEarnedQar,
                                     decimals: 0,
                                   );
+                                  final subtitle = program?.description
+                                          .trim()
+                                          .isNotEmpty ==
+                                      true
+                                      ? program!.description
+                                      : s.referDriverProgressSubtitle;
 
                                   return Column(
                                     crossAxisAlignment:
@@ -160,7 +173,7 @@ class _ReferDriverProgressViewState extends State<ReferDriverProgressView> {
                                     children: [
                                       ResponsiveGap(8),
                                       Text(
-                                        s.referDriverProgressSubtitle,
+                                        subtitle,
                                         textDirection: s.textDirection,
                                         style: TextStyle(
                                           fontFamily: AppFonts.satoshi,
@@ -172,6 +185,8 @@ class _ReferDriverProgressViewState extends State<ReferDriverProgressView> {
                                       ResponsiveGap(20),
                                       _RewardSummaryCard(
                                         bountyLabel: bountyLabel,
+                                        minRides: minRides,
+                                        windowDays: windowDays,
                                       ),
                                       if (referralCode.isNotEmpty) ...[
                                         ResponsiveGap(14),
@@ -190,6 +205,16 @@ class _ReferDriverProgressViewState extends State<ReferDriverProgressView> {
                                             children: [
                                               Expanded(
                                                 child: _StatTile(
+                                                  label: s.referDriverTotalReferrals,
+                                                  value:
+                                                      '${progress.totalReferrals}',
+                                                  hint: s
+                                                      .referDriverTotalReferralsHint,
+                                                ),
+                                              ),
+                                              SizedBox(width: r.gap(12)),
+                                              Expanded(
+                                                child: _StatTile(
                                                   label: s
                                                       .referDriverQualifiedReferrals,
                                                   value:
@@ -198,7 +223,11 @@ class _ReferDriverProgressViewState extends State<ReferDriverProgressView> {
                                                       .referDriverQualifiedReferralsHint,
                                                 ),
                                               ),
-                                              SizedBox(width: r.gap(12)),
+                                            ],
+                                          ),
+                                          ResponsiveGap(12),
+                                          Row(
+                                            children: [
                                               Expanded(
                                                 child: _StatTile(
                                                   label: s
@@ -217,28 +246,35 @@ class _ReferDriverProgressViewState extends State<ReferDriverProgressView> {
                                       ),
                                       ResponsiveGap(14),
                                       _DetailsCard(
-                                        title: s.referDriverHowItWorks,
+                                        title: s.referDriverReferredDrivers,
                                         children: [
-                                          _StepRow(
-                                            step: 1,
-                                            label: s.referDriverHowItWorksStep1,
-                                          ),
-                                          ResponsiveGap(12),
-                                          _StepRow(
-                                            step: 2,
-                                            label: s.referDriverHowItWorksStep2,
-                                          ),
-                                          ResponsiveGap(12),
-                                          _StepRow(
-                                            step: 3,
-                                            label: s.referDriverHowItWorksStep3,
-                                          ),
+                                          if (progress.referredDrivers.isEmpty)
+                                            _EmptyReferralsCard(
+                                              message: s
+                                                  .referDriverNoReferredDriversYet,
+                                            )
+                                          else
+                                            ...progress.referredDrivers
+                                                .asMap()
+                                                .entries
+                                                .map((entry) {
+                                              final isLast = entry.key ==
+                                                  progress.referredDrivers
+                                                          .length -
+                                                      1;
+                                              return Padding(
+                                                padding: EdgeInsets.only(
+                                                  bottom: isLast
+                                                      ? 0
+                                                      : r.gap(12),
+                                                ),
+                                                child: _ReferredDriverCard(
+                                                  driver: entry.value,
+                                                ),
+                                              );
+                                            }),
                                         ],
                                       ),
-                                      if (progress.qualifiedCount == 0) ...[
-                                        ResponsiveGap(14),
-                                        const _EmptyReferralsCard(),
-                                      ],
                                     ],
                                   );
                                 },
@@ -257,9 +293,13 @@ class _ReferDriverProgressViewState extends State<ReferDriverProgressView> {
 class _RewardSummaryCard extends StatelessWidget {
   const _RewardSummaryCard({
     required this.bountyLabel,
+    required this.minRides,
+    required this.windowDays,
   });
 
   final String bountyLabel;
+  final int minRides;
+  final int windowDays;
 
   @override
   Widget build(BuildContext context) {
@@ -321,7 +361,7 @@ class _RewardSummaryCard extends StatelessWidget {
           ),
           ResponsiveGap(8),
           Text(
-            s.referDriverProgramRequirement,
+            s.referDriverProgramRequirementFor(minRides, windowDays),
             textDirection: s.textDirection,
             style: TextStyle(
               fontFamily: AppFonts.satoshi,
@@ -524,62 +564,180 @@ class _StatTile extends StatelessWidget {
   }
 }
 
-class _StepRow extends StatelessWidget {
-  const _StepRow({
-    required this.step,
-    required this.label,
-  });
+class _ReferredDriverCard extends StatelessWidget {
+  const _ReferredDriverCard({required this.driver});
 
-  final int step;
-  final String label;
+  final ReferredDriverProgress driver;
 
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
-    final dashboard = DashboardTheme.of(context);
     final s = AppStringsScope.of(context);
+    final dashboard = DashboardTheme.of(context);
+    final name = driver.referredName.isNotEmpty
+        ? driver.referredName
+        : s.referDriverReferredDrivers;
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: r.w(28).clamp(24.0, 32.0),
-          height: r.w(28).clamp(24.0, 32.0),
-          decoration: BoxDecoration(
-            color: AppColors.loginButton.withValues(alpha: 0.16),
-            shape: BoxShape.circle,
+    final statusLabel = driver.isPaid
+        ? s.referDriverStatusPaid
+        : driver.qualified
+            ? s.referDriverStatusQualified
+            : driver.bountyWindowActive
+                ? s.referDriverStatusInProgress
+                : s.referDriverWindowExpired;
+
+    final statusColor = driver.isPaid
+        ? const Color(0xFF2E7D32)
+        : driver.qualified
+            ? AppColors.loginButton
+            : driver.bountyWindowActive
+                ? const Color(0xFF1565C0)
+                : dashboard.mutedText;
+
+    final minRides =
+        driver.minRidesRequired > 0 ? driver.minRidesRequired : 100;
+    final daysRemaining = driver.bountyWindowEndsAt == null
+        ? null
+        : driver.bountyWindowEndsAt!
+            .toLocal()
+            .difference(DateTime.now())
+            .inDays
+            .clamp(0, 9999);
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(r.gap(14)),
+      decoration: BoxDecoration(
+        color: dashboard.iconBox,
+        borderRadius: BorderRadius.circular(r.gap(10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  textDirection: s.textDirection,
+                  style: TextStyle(
+                    fontFamily: AppFonts.satoshi,
+                    fontSize: r.sp(15).clamp(14.0, 16.0),
+                    fontWeight: FontWeight.w700,
+                    color: dashboard.primaryText,
+                  ),
+                ),
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: r.gap(10),
+                  vertical: r.gap(4),
+                ),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  statusLabel,
+                  textDirection: s.textDirection,
+                  style: TextStyle(
+                    fontFamily: AppFonts.satoshi,
+                    fontSize: r.sp(11).clamp(10.0, 12.0),
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+            ],
           ),
-          alignment: Alignment.center,
-          child: Text(
-            '$step',
-            style: TextStyle(
-              fontFamily: AppFonts.satoshi,
-              fontSize: r.sp(13).clamp(12.0, 14.0),
-              fontWeight: FontWeight.w700,
+          ResponsiveGap(12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: driver.progressFraction,
+              minHeight: r.gap(8).clamp(6.0, 10.0),
+              backgroundColor: dashboard.card,
               color: AppColors.loginButton,
             ),
           ),
-        ),
-        SizedBox(width: r.gap(12)),
-        Expanded(
-          child: Text(
-            label,
+          ResponsiveGap(8),
+          Text(
+            s.referDriverRidesProgress(driver.completedRides, minRides),
             textDirection: s.textDirection,
             style: TextStyle(
               fontFamily: AppFonts.satoshi,
-              fontSize: r.sp(14).clamp(13.0, 15.0),
-              color: dashboard.bodyText,
-              height: 1.45,
+              fontSize: r.sp(13).clamp(12.0, 14.0),
+              fontWeight: FontWeight.w600,
+              color: dashboard.primaryText,
             ),
           ),
-        ),
-      ],
+          if (!driver.qualified && driver.ridesRemaining > 0) ...[
+            ResponsiveGap(4),
+            Text(
+              s.referDriverRidesRemaining(driver.ridesRemaining),
+              textDirection: s.textDirection,
+              style: TextStyle(
+                fontFamily: AppFonts.satoshi,
+                fontSize: r.sp(12).clamp(11.0, 13.0),
+                color: dashboard.secondaryText,
+              ),
+            ),
+          ],
+          if (driver.bountyWindowActive &&
+              daysRemaining != null &&
+              !driver.qualified) ...[
+            ResponsiveGap(4),
+            Text(
+              s.referDriverDaysRemaining(daysRemaining),
+              textDirection: s.textDirection,
+              style: TextStyle(
+                fontFamily: AppFonts.satoshi,
+                fontSize: r.sp(12).clamp(11.0, 13.0),
+                color: dashboard.secondaryText,
+              ),
+            ),
+          ],
+          if (driver.referredAt != null) ...[
+            ResponsiveGap(8),
+            Text(
+              s.referDriverJoinedOn(_formatShortDate(driver.referredAt!)),
+              textDirection: s.textDirection,
+              style: TextStyle(
+                fontFamily: AppFonts.satoshi,
+                fontSize: r.sp(11).clamp(10.0, 12.0),
+                color: dashboard.mutedText,
+              ),
+            ),
+          ],
+          if (driver.qualifiedAt != null) ...[
+            ResponsiveGap(4),
+            Text(
+              s.referDriverQualifiedOn(_formatShortDate(driver.qualifiedAt!)),
+              textDirection: s.textDirection,
+              style: TextStyle(
+                fontFamily: AppFonts.satoshi,
+                fontSize: r.sp(11).clamp(10.0, 12.0),
+                color: dashboard.mutedText,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
+  }
+
+  String _formatShortDate(DateTime value) {
+    final local = value.toLocal();
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    return '$day/$month/${local.year}';
   }
 }
 
 class _EmptyReferralsCard extends StatelessWidget {
-  const _EmptyReferralsCard();
+  const _EmptyReferralsCard({required this.message});
+
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -595,7 +753,7 @@ class _EmptyReferralsCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(r.borderRadiusMd),
       ),
       child: Text(
-        s.referDriverNoReferralsYet,
+        message,
         textAlign: TextAlign.center,
         textDirection: s.textDirection,
         style: TextStyle(

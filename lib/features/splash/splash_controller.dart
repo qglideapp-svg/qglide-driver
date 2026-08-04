@@ -13,6 +13,9 @@ class SplashController extends ChangeNotifier {
 
   VideoPlayerController? get videoController => _videoController;
 
+  bool get hasVideoController =>
+      !_disposed && _videoController != null;
+
   bool get isVideoReady =>
       !_disposed &&
       _videoController != null &&
@@ -23,8 +26,11 @@ class SplashController extends ChangeNotifier {
   Future<void> initialize() async {
     if (_disposed) return;
 
+    _fallbackTimer?.cancel();
+    _fallbackTimer = Timer(const Duration(seconds: 12), _markComplete);
+
     try {
-      final controller = await SplashVideoModel.load();
+      final controller = await SplashVideoModel.beginLoad();
       if (_disposed) {
         await controller.dispose();
         SplashVideoModel.reset();
@@ -34,6 +40,17 @@ class SplashController extends ChangeNotifier {
       _videoController = controller;
       controller.addListener(_onVideoUpdate);
       notifyListeners();
+
+      await SplashVideoModel.load().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          throw TimeoutException('Splash video load timed out');
+        },
+      );
+      if (_disposed) {
+        return;
+      }
+
       _scheduleFallbackTimer(controller.value.duration);
       await controller.play();
     } catch (error) {

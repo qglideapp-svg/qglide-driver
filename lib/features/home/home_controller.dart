@@ -8,10 +8,13 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/api_config.dart';
+import '../../config/app_constants.dart';
 import '../../config/app_strings.dart';
 import '../../services/active_ride_storage.dart';
 import '../../services/added_stop_arrival_sound_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/directions_service.dart';
+import '../../services/driver_online_foreground_service.dart';
 import '../../services/push_notification_service.dart';
 import '../../services/ride_realtime_service.dart';
 import '../../services/ride_request_sound_service.dart';
@@ -36,6 +39,14 @@ class HomeController extends ChangeNotifier {
   HomeController() {
     PushNotificationService.onRideRequestNotificationOpened =
         handleRideRequestNotificationOpened;
+    PushNotificationService.onRideRequestNotificationAction =
+        handleRideRequestNotificationAction;
+  }
+
+  /// Processes any ride-request notification payloads/actions once Home is mounted.
+  void processPendingRideNotificationHandlers() {
+    PushNotificationService.processPendingRideRequestOpen();
+    PushNotificationService.processPendingRideRequestAction();
   }
 
   var _isOnline = false;
@@ -79,10 +90,19 @@ class HomeController extends ChangeNotifier {
   DateTime? _lastNavigationCameraUpdate;
   var _cameraTarget = defaultPosition;
   var _driverPosition = defaultPosition;
+  var _gpsPosition = defaultPosition;
+  var _routeDistanceTraveled = 0.0;
+  var _targetRouteDistance = 0.0;
+  var _targetHeading = 0.0;
+  var _navigationCameraBearing = 0.0;
+  var _lastGpsSpeedMps = 0.0;
+  LatLng? _lastCameraFollowPosition;
   var _hasDriverMarker = false;
   var _locationReady = false;
   var _locationDenied = false;
   var _hasRideRequest = false;
+  /// Protects a notification-opened preview from brief offline side-effects.
+  var _openedRideRequestFromNotification = false;
   var _hasActivePickup = false;
   var _hasActiveRide = false;
   var _hasActiveTrip = false;
@@ -93,20 +113,26 @@ class HomeController extends ChangeNotifier {
   static const _locationUpdateIntervalIdle = Duration(seconds: 8);
   static const _locationUpdateIntervalEnRoute = Duration(seconds: 2);
   static const _navigationFollowZoom = 18.0;
-  static const _navigationCameraMinInterval = Duration(milliseconds: 250);
+  static const _navigationCameraMinInterval = Duration(milliseconds: 2200);
+  static const _navigationSmoothInterval = Duration(milliseconds: 50);
+  static const _cameraMinMoveMeters = 12.0;
+  static const _cameraMinBearingDelta = 8.0;
+  static const _cameraMinSpeedMps = 1.5;
+  static const _routeDistanceSmoothFactor = 0.22;
+  static const _headingSmoothFactor = 0.18;
 
   Timer? _nearbyRidesPollingTimer;
   Timer? _rideStatusPollingTimer;
   Timer? _pickupEtaTickTimer;
   Timer? _locationUpdateTimer;
+  Timer? _navigationSmoothingTimer;
+  Duration? _activeLocationTimerInterval;
   int? _lastLivePickupEtaMinutes;
-  Timer? _driverAnimationTimer;
   StreamSubscription<Position>? _positionStreamSubscription;
   final _rideRealtimeService = RideRealtimeService();
   var _isLocationUpdateInFlight = false;
   var _positionStreamEnRoute = false;
   DateTime? _lastBackendLocationPost;
-  DateTime _lastAnimationNotifyAt = DateTime.fromMillisecondsSinceEpoch(0);
   var _isFetchingNearbyRides = false;
   var _isFetchingRideStatus = false;
   var _isAcceptingRide = false;
@@ -122,14 +148,14 @@ class HomeController extends ChangeNotifier {
   NearbyRideOffer? _persistedRideOffer;
 
   BitmapDescriptor? _driverCarIcon;
-  BitmapDescriptor? _pickupPinIcon;
   var _rideMapIconsReady = false;
   var _driverHeading = 0.0;
   var _pickupLocation = defaultPosition;
   var _destinationLocation = defaultPosition;
   var _pickupLegStartPosition = defaultPosition;
   var _fullRoutePoints = <LatLng>[];
-  var _routeDistanceTraveled = 0.0;
+  DateTime? _lastPickupRouteRefreshAt;
+  LatLng? _lastPickupRouteOrigin;
   final _acknowledgedStopKeys = <String>{};
   final _arrivedAtStopKeys = <String>{};
   RiderStopNotification? _pendingRiderStopNotification;
@@ -239,7 +265,8 @@ class HomeController extends ChangeNotifier {
   int get mapSessionId => _mapSessionId;
   bool get mapSurfaceReady => _mapSurfaceReady;
   bool get showsDriverPointer =>
-      _hasDriverMarker && _activeDriverIcon != null;
+      _hasDriverMarker && _driverCarIcon != null;
+
   double get pickupProgress {
     if (!_hasActivePickup) return 0;
 
@@ -269,25 +296,10 @@ class HomeController extends ChangeNotifier {
     );
   }
 
-  BitmapDescriptor? get _activeDriverIcon => _driverCarIcon;
-
   Set<Marker> get markers {
-    final markers = <Marker>{};
-
-    if (hasAcceptedRide && _rideMapIconsReady && _pickupPinIcon != null) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('pickup'),
-          position: _pickupLocation,
-          icon: _pickupPinIcon!,
-          anchor: const Offset(0.5, 1.0),
-        ),
-      );
-    }
-
-    final driverIcon = _activeDriverIcon;
+    final driverIcon = _driverCarIcon;
     if (showsDriverPointer && driverIcon != null) {
-      markers.add(
+      return {
         Marker(
           markerId: const MarkerId('driver_location'),
           position: _driverPosition,
@@ -296,10 +308,9 @@ class HomeController extends ChangeNotifier {
           flat: true,
           rotation: _driverHeading,
         ),
-      );
+      };
     }
-
-    return markers;
+    return {};
   }
 
   Set<Polyline> get polylines {
@@ -318,7 +329,7 @@ class HomeController extends ChangeNotifier {
         points: points,
         color: _routeColor,
         width: 5,
-        geodesic: true,
+        geodesic: false,
         startCap: Cap.roundCap,
         endCap: Cap.roundCap,
         jointType: JointType.round,
@@ -336,16 +347,7 @@ class HomeController extends ChangeNotifier {
     return points.where(_isValidCoordinate).toList(growable: false);
   }
 
-  List<LatLng> get _activeRoutePoints {
-    if (_fullRoutePoints.length < 3) return _fullRoutePoints;
-    if (_hasActivePickup) {
-      return _fullRoutePoints.sublist(0, 3);
-    }
-    if (_hasActiveRide) {
-      return _fullRoutePoints.sublist(0, 3);
-    }
-    return _fullRoutePoints;
-  }
+  List<LatLng> get _activeRoutePoints => _fullRoutePoints;
 
   Future<String?> toggleOnlineStatus() async {
     if (_isUpdatingOnlineStatus) return null;
@@ -394,6 +396,8 @@ class HomeController extends ChangeNotifier {
         notifyListeners();
         if (_isOnline) {
           unawaited(PushNotificationService.registerTokenIfLoggedIn());
+          // After explicit go-online only — never from resume/stats paths.
+          unawaited(_requestBackgroundLocationAfterGoOnline());
         }
         unawaited(loadTodayStats());
         return null;
@@ -422,13 +426,26 @@ class HomeController extends ChangeNotifier {
       startLocationUpdates();
       startNearbyRidesPolling();
       startRideStatusPolling();
+      unawaited(DriverOnlineForegroundService.start());
       return;
     }
 
     stopLocationUpdates();
     stopNearbyRidesPolling();
     stopRideStatusPolling();
-    dismissRideRequest();
+    unawaited(DriverOnlineForegroundService.stop());
+    if (!_openedRideRequestFromNotification) {
+      dismissRideRequest();
+    }
+  }
+
+  /// One-shot Always permission after the driver explicitly goes online.
+  /// Must not run from resume/stats refresh paths (permission UI pauses the
+  /// app and would loop with [refreshDashboardOnResume]).
+  Future<void> _requestBackgroundLocationAfterGoOnline() async {
+    await LocationTrackerService.ensureBackgroundLocationAccess();
+    if (!_isOnline && !_isEnRouteForLocation) return;
+    startLocationUpdates();
   }
 
   Duration _resolveLocationUpdateInterval() {
@@ -453,10 +470,16 @@ class HomeController extends ChangeNotifier {
     if (!_isOnline && !_isEnRouteForLocation) return;
 
     final enRoute = _isEnRouteForLocation;
+    final interval = _resolveLocationUpdateInterval();
     _restartPositionStream(enRoute: enRoute);
 
-    final interval = _resolveLocationUpdateInterval();
+    if (_locationUpdateTimer != null &&
+        _activeLocationTimerInterval == interval) {
+      return;
+    }
+
     _locationUpdateTimer?.cancel();
+    _activeLocationTimerInterval = interval;
     unawaited(_postLocationToBackend());
 
     _locationUpdateTimer = Timer.periodic(interval, (_) async {
@@ -473,9 +496,9 @@ class HomeController extends ChangeNotifier {
   void stopLocationUpdates() {
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = null;
+    _activeLocationTimerInterval = null;
     _stopPositionStream();
-    _driverAnimationTimer?.cancel();
-    _driverAnimationTimer = null;
+    _stopNavigationSmoothing();
   }
 
   void _restartPositionStream({required bool enRoute}) {
@@ -499,9 +522,19 @@ class HomeController extends ChangeNotifier {
 
   void _onGpsPosition(Position position) {
     final target = LatLng(position.latitude, position.longitude);
-    _applyDeviceHeading(position);
-    _setDriverPosition(target, notify: true, animate: true);
+    _gpsPosition = target;
+    _lastGpsSpeedMps = position.speed >= 0 ? position.speed : 0;
+    if (!_shouldSnapToRoute) {
+      _applyDeviceHeading(position);
+    }
+    _setDriverPosition(target, notify: true);
+    if (_checkAddedStopArrival(_gpsPosition)) {
+      notifyListeners();
+    }
     _maybeSyncLocationToBackend();
+    if (_hasActivePickup && hasAcceptedRide) {
+      unawaited(_maybeRefreshPickupRoute());
+    }
   }
 
   void _applyDeviceHeading(Position position) {
@@ -537,8 +570,8 @@ class HomeController extends ChangeNotifier {
       final heading = (_driverHeading % 360 + 360) % 360;
 
       await AuthService.updateDriverLocation(
-        latitude: _driverPosition.latitude,
-        longitude: _driverPosition.longitude,
+        latitude: _gpsPosition.latitude,
+        longitude: _gpsPosition.longitude,
         heading: heading,
         isAvailable: _isOnline && !_isEnRouteForLocation,
         rideId: rideId,
@@ -738,8 +771,13 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> loadTodayStats() async {
-    _isLoadingTodayStats = true;
-    notifyListeners();
+    // Avoid swapping the stats bar for a skeleton when we already have data —
+    // that flash was amplifying the online flicker loop.
+    final showLoadingPlaceholder = !_hasLoadedDashboardStats;
+    if (showLoadingPlaceholder) {
+      _isLoadingTodayStats = true;
+      notifyListeners();
+    }
 
     try {
       final response = await AuthService.getDriverTodayStats();
@@ -786,9 +824,24 @@ class HomeController extends ChangeNotifier {
     }
   }
 
+  DateTime? _lastDashboardResumeAt;
+
   /// Refreshes driver tab data after the app returns from a long idle period.
   Future<void> refreshDashboardOnResume() async {
     if (_isRefreshingDashboard) return;
+
+    // Permission dialogs / FGS notification taps briefly pause the app. Debounce
+    // so we do not reload stats + avatar in a tight loop while online.
+    final now = DateTime.now();
+    final last = _lastDashboardResumeAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 8)) {
+      if (_isOnline || _isEnRouteForLocation) {
+        startLocationUpdates();
+      }
+      unawaited(PushNotificationService.registerTokenIfLoggedIn());
+      return;
+    }
+    _lastDashboardResumeAt = now;
 
     if (!hasAcceptedRide) {
       refreshMapSurfaceOnResume();
@@ -799,11 +852,18 @@ class HomeController extends ChangeNotifier {
     _isRefreshingDashboard = true;
     try {
       await AuthService.maintainSession();
+      unawaited(PushNotificationService.registerTokenIfLoggedIn());
+      if (_isOnline || _isEnRouteForLocation) {
+        startLocationUpdates();
+      }
       await Future.wait([
         loadTodayStats(),
         loadDriverProfile(),
         loadReferDriver(),
       ]);
+      if (_isOnline || _isEnRouteForLocation) {
+        startLocationUpdates();
+      }
       if (hasAcceptedRide || _isPendingRideAcceptance) {
         await _fetchRideStatus(allowWhenOffline: true);
       }
@@ -829,7 +889,7 @@ class HomeController extends ChangeNotifier {
     try {
       await _syncMapCamera(animated: false);
       if (_hasActiveTrip) {
-        await _followDriverNavigationCamera(animated: false);
+        _maybeFollowNavigationCamera(force: true);
       } else {
         await _updateRideMapCamera(animated: false);
       }
@@ -1031,9 +1091,10 @@ class HomeController extends ChangeNotifier {
       return;
     }
 
-    _nearbyRidesPollingTimer?.cancel();
-    unawaited(_fetchNearbyRides());
+    // Idempotent: loadTodayStats/resume call this often; do not reset the timer.
+    if (_nearbyRidesPollingTimer != null) return;
 
+    unawaited(_fetchNearbyRides());
     _nearbyRidesPollingTimer = Timer.periodic(
       const Duration(seconds: 4),
       (_) => unawaited(_fetchNearbyRides()),
@@ -1148,9 +1209,9 @@ class HomeController extends ChangeNotifier {
       return;
     }
 
-    _rideStatusPollingTimer?.cancel();
-    unawaited(_fetchRideStatus());
+    if (_rideStatusPollingTimer != null) return;
 
+    unawaited(_fetchRideStatus());
     _rideStatusPollingTimer = Timer.periodic(
       const Duration(seconds: 4),
       (_) => unawaited(_fetchRideStatus()),
@@ -1248,7 +1309,7 @@ class HomeController extends ChangeNotifier {
       unawaited(RideRequestSoundService.suppressPlayback());
       stopNearbyRidesPolling();
       if (enteringPickup) {
-        _setupRideRoute();
+        unawaited(_setupRideRoute());
         _startPickupEtaTracking(merged.id);
         startLocationUpdates();
       }
@@ -1446,7 +1507,7 @@ class HomeController extends ChangeNotifier {
     _stopPickupEtaTracking();
     stopNearbyRidesPolling();
     startLocationUpdates();
-    _setupRideRoute();
+    unawaited(_setupRideRoute());
     _updateNavigationHeading();
     if (prepareMap || !_rideMapIconsReady) {
       unawaited(_prepareRideMap());
@@ -1472,15 +1533,8 @@ class HomeController extends ChangeNotifier {
     _stopPickupEtaTracking();
     stopNearbyRidesPolling();
     startLocationUpdates();
-    _setupRideRoute();
-    if (_shouldFollowRoute) {
-      final snapped =
-          RideRouteProgress.snapToRoute(_activeRoutePoints, _pickupLocation);
-      _routeDistanceTraveled = snapped.distanceAlongRoute;
-      _driverPosition = snapped.point;
-    } else {
-      _driverPosition = _pickupLocation;
-    }
+    unawaited(_setupRideRoute());
+    _driverPosition = _pickupLocation;
     _updateNavigationHeading();
     if (prepareMap || !_rideMapIconsReady) {
       unawaited(_prepareRideMap());
@@ -1638,11 +1692,90 @@ class HomeController extends ChangeNotifier {
         !hasAcceptedRide &&
         !_isAcceptingRide &&
         !_isPendingRideAcceptance) {
+      _openedRideRequestFromNotification = true;
       _showRideRequest(previewOffer);
       notifyListeners();
     }
 
     unawaited(_refreshRideRequestAfterNotificationOpened(data));
+  }
+
+  /// Accepts or declines a ride from a notification action button.
+  Future<void> handleRideRequestNotificationAction(
+    String action,
+    Map<String, dynamic> data,
+  ) async {
+    unawaited(RideRequestSoundService.stop());
+
+    final rideId = data['ride_id']?.toString();
+    if (rideId == null || rideId.isEmpty) return;
+
+    if (action == AppConstants.rideRequestNotificationActionIgnore) {
+      if (_isAcceptingRide || _isDecliningRide || hasAcceptedRide) return;
+
+      _isDecliningRide = true;
+      notifyListeners();
+      try {
+        await AuthService.rideResponse(rideId: rideId, action: 'decline');
+        _isPendingRideAcceptance = false;
+        _pendingAcceptRideId = null;
+        dismissRideRequest();
+      } finally {
+        _isDecliningRide = false;
+        notifyListeners();
+      }
+      return;
+    }
+
+    if (action != AppConstants.rideRequestNotificationActionAccept) return;
+    if (_isAcceptingRide || _isDecliningRide || hasAcceptedRide) return;
+
+    final persisted = await ActiveRideStorage.load();
+    if (persisted != null && persisted.id == rideId) {
+      await _syncAcceptedRideFromNotification(persisted);
+      return;
+    }
+
+    final previewOffer = NearbyRideOffer.fromNotificationData(data);
+    if (previewOffer == null || !previewOffer.isPending) {
+      await _refreshRideRequestDetails(rideId: rideId);
+    }
+
+    if (_currentRideOffer == null || _currentRideOffer!.id != rideId) {
+      if (previewOffer != null && previewOffer.isPending) {
+        _currentRideOffer = previewOffer;
+      } else {
+        return;
+      }
+    }
+
+    await acceptRideRequest();
+  }
+
+  Future<void> _syncAcceptedRideFromNotification(NearbyRideOffer offer) async {
+    if (hasAcceptedRide || _isPendingRideAcceptance) return;
+
+    stopNearbyRidesPolling();
+    await RideRequestSoundService.suppressPlayback();
+
+    _acceptedRideOffer = offer;
+    _pendingAcceptRideId = offer.id;
+    _isPendingRideAcceptance = true;
+    _hasRideRequest = false;
+    _currentRideOffer = null;
+    _openedRideRequestFromNotification = false;
+    _persistAcceptedRide(offer);
+
+    final stopNotification = _buildStopNotificationForOffer(offer);
+    if (stopNotification != null) {
+      _pendingRiderStopNotification = stopNotification;
+    }
+
+    _startPickupEtaTracking(offer.id);
+    startRideStatusPolling();
+    startLocationUpdates();
+    unawaited(_fetchRideStatus(allowWhenOffline: true));
+    notifyListeners();
   }
 
   Future<void> _refreshRideRequestAfterNotificationOpened(
@@ -1719,8 +1852,13 @@ class HomeController extends ChangeNotifier {
   void dismissRideRequest() {
     if (_isAcceptingRide) return;
 
+    final rideId = _currentRideOffer?.id;
     unawaited(RideRequestSoundService.stop());
+    if (rideId != null && rideId.isNotEmpty) {
+      unawaited(PushNotificationService.cancelRideRequestNotification(rideId));
+    }
     _hasRideRequest = false;
+    _openedRideRequestFromNotification = false;
     _currentRideOffer = null;
     notifyListeners();
   }
@@ -1790,6 +1928,7 @@ class HomeController extends ChangeNotifier {
       _pendingAcceptRideId = offer.id;
       _isPendingRideAcceptance = true;
       _hasRideRequest = false;
+      _openedRideRequestFromNotification = false;
 
       final stopNotification = _buildStopNotificationForOffer(acceptedOffer);
       if (stopNotification != null) {
@@ -2161,6 +2300,7 @@ class HomeController extends ChangeNotifier {
     _locationReady = true;
     _locationDenied = false;
 
+    _hasDriverMarker = true;
     await _showDriverPointerAtCurrentLocation();
     await _animateTo(_driverPosition);
     if (_isOnline) {
@@ -2190,7 +2330,8 @@ class HomeController extends ChangeNotifier {
   Future<void> _recenterMapOnDriver({bool resetBearing = false}) async {
     await _refreshDriverPosition();
     if (_hasActiveTrip && !resetBearing) {
-      await _followDriverNavigationCamera(animated: true);
+      _navigationCameraBearing = _driverHeading;
+      _maybeFollowNavigationCamera(force: true);
     } else {
       await _animateTo(_driverPosition, bearing: 0);
     }
@@ -2211,7 +2352,6 @@ class HomeController extends ChangeNotifier {
 
   Future<void> _prepareRideMap() async {
     _driverCarIcon ??= await MapMarkerIcons.driverCarMarker();
-    _pickupPinIcon ??= await MapMarkerIcons.pickupPin();
     _rideMapIconsReady = true;
     notifyListeners();
     await _updateRideMapCamera(animated: true);
@@ -2219,29 +2359,24 @@ class HomeController extends ChangeNotifier {
 
   Future<void> _updateRideMapCamera({bool animated = false}) async {
     if (_hasActiveTrip) {
-      await _followDriverNavigationCamera(animated: animated);
+      _navigationCameraBearing = _driverHeading;
+      _maybeFollowNavigationCamera(force: animated);
       return;
     }
     await _fitRouteCamera();
   }
 
-  Future<void> _followDriverNavigationCamera({bool animated = false}) async {
+  Future<void> _followDriverNavigationCamera({
+    bool animated = false,
+    required double bearing,
+  }) async {
     if (!_hasActiveTrip) return;
 
-    final now = DateTime.now();
-    if (!animated &&
-        _lastNavigationCameraUpdate != null &&
-        now.difference(_lastNavigationCameraUpdate!) <
-            _navigationCameraMinInterval) {
-      return;
-    }
-    _lastNavigationCameraUpdate = now;
-
-    final bearing = (_driverHeading % 360 + 360) % 360;
+    final normalizedBearing = (bearing % 360 + 360) % 360;
     final position = CameraPosition(
       target: _driverPosition,
       zoom: _navigationFollowZoom,
-      bearing: bearing,
+      bearing: normalizedBearing,
     );
     _cameraTarget = _driverPosition;
 
@@ -2249,7 +2384,7 @@ class HomeController extends ChangeNotifier {
     if (controller == null) {
       _pendingCameraTarget = _driverPosition;
       _pendingCameraZoom = _navigationFollowZoom;
-      _pendingCameraBearing = bearing;
+      _pendingCameraBearing = normalizedBearing;
       _pendingNavigationCamera = true;
       return;
     }
@@ -2266,7 +2401,113 @@ class HomeController extends ChangeNotifier {
     } catch (_) {}
   }
 
-  void _setupRideRoute() {
+  void _maybeFollowNavigationCamera({bool force = false}) {
+    if (!_hasActiveTrip) return;
+
+    final now = DateTime.now();
+    if (!force &&
+        _lastNavigationCameraUpdate != null &&
+        now.difference(_lastNavigationCameraUpdate!) <
+            _navigationCameraMinInterval) {
+      return;
+    }
+
+    var movedEnough = _lastCameraFollowPosition == null;
+    if (_lastCameraFollowPosition != null) {
+      movedEnough = Geolocator.distanceBetween(
+            _lastCameraFollowPosition!.latitude,
+            _lastCameraFollowPosition!.longitude,
+            _driverPosition.latitude,
+            _driverPosition.longitude,
+          ) >=
+          _cameraMinMoveMeters;
+    }
+
+    final bearingDelta = _angleDelta(_navigationCameraBearing, _driverHeading);
+    final turningEnough = _lastGpsSpeedMps >= _cameraMinSpeedMps &&
+        bearingDelta.abs() >= _cameraMinBearingDelta;
+    final shouldUpdateBearing = force || turningEnough;
+
+    if (!force && !movedEnough && !shouldUpdateBearing) {
+      return;
+    }
+
+    if (shouldUpdateBearing) {
+      _navigationCameraBearing = _lerpAngle(
+        _navigationCameraBearing,
+        _driverHeading,
+        force ? 1 : 0.35,
+      );
+    }
+
+    _lastNavigationCameraUpdate = now;
+    _lastCameraFollowPosition = _driverPosition;
+    unawaited(
+      _followDriverNavigationCamera(
+        animated: force,
+        bearing: _navigationCameraBearing,
+      ),
+    );
+  }
+
+  void _ensureNavigationSmoothingActive() {
+    if (_navigationSmoothingTimer != null) return;
+    _navigationSmoothingTimer = Timer.periodic(
+      _navigationSmoothInterval,
+      (_) => _tickNavigationSmoothing(),
+    );
+  }
+
+  void _stopNavigationSmoothing() {
+    _navigationSmoothingTimer?.cancel();
+    _navigationSmoothingTimer = null;
+  }
+
+  void _tickNavigationSmoothing() {
+    if (!_shouldSnapToRoute) {
+      _stopNavigationSmoothing();
+      return;
+    }
+
+    final route = _activeRoutePoints;
+    if (route.length < 2) return;
+
+    final distDelta = _targetRouteDistance - _routeDistanceTraveled;
+    if (distDelta.abs() > 0.3) {
+      _routeDistanceTraveled += distDelta * _routeDistanceSmoothFactor;
+    } else {
+      _routeDistanceTraveled = _targetRouteDistance;
+    }
+
+    _driverHeading = _lerpAngle(
+      _driverHeading,
+      _targetHeading,
+      _headingSmoothFactor,
+    );
+
+    final onRoute =
+        RideRouteProgress.positionAtDistance(route, _routeDistanceTraveled);
+    _applyDriverPosition(
+      onRoute.point,
+      notify: true,
+      skipHeadingUpdate: true,
+    );
+
+    if (_hasActiveTrip) {
+      _maybeFollowNavigationCamera();
+    }
+  }
+
+  static double _lerpAngle(double from, double to, double t) {
+    final delta = _angleDelta(from, to);
+    return (from + delta * t) % 360;
+  }
+
+  static double _angleDelta(double from, double to) {
+    return ((to - from + 540) % 360) - 180;
+  }
+
+  Future<void> _setupRideRoute() async {
     final origin = _hasDriverMarker ? _driverPosition : defaultPosition;
     final offer = _acceptedRideOffer ?? _currentRideOffer;
     _pickupLocation = offer?.pickupLatLng ??
@@ -2283,50 +2524,108 @@ class HomeController extends ChangeNotifier {
         offer?.requestedDropoffLatLng != null) {
       _destinationLocation = offer!.requestedDropoffLatLng!;
     }
+
+    late LatLng start;
+    late LatLng end;
     if (_hasActivePickup) {
       _pickupLegStartPosition = origin;
-    }
-    _fullRoutePoints = _buildRoutePoints(
-      origin,
-      _pickupLocation,
-      _destinationLocation,
-    );
-    final route = _activeRoutePoints;
-    if (route.length >= 2) {
-      final snapped = RideRouteProgress.snapToRoute(route, origin);
-      _routeDistanceTraveled = snapped.distanceAlongRoute;
-      _driverPosition = snapped.point;
+      start = origin;
+      end = _pickupLocation;
+    } else if (_hasActiveRide || _hasActiveTrip) {
+      start = _pickupLocation;
+      end = _destinationLocation;
     } else {
-      _routeDistanceTraveled = 0;
-      _driverPosition = origin;
+      start = origin;
+      end = _pickupLocation;
     }
-    _updateNavigationHeading();
+
+    final points = await DirectionsService.fetchDrivingRoute(
+      origin: start,
+      destination: end,
+    );
+    _fullRoutePoints = points.length >= 2 ? points : [start, end];
+    _routeDistanceTraveled = 0;
+    _targetRouteDistance = 0;
+    if (_fullRoutePoints.length >= 2) {
+      final snapFrom = _locationReady ? _gpsPosition : origin;
+      final snapped = RideRouteProgress.snapToRoute(_fullRoutePoints, snapFrom);
+      final onRoute = RideRouteProgress.positionAtDistance(
+        _fullRoutePoints,
+        snapped.distanceAlongRoute,
+      );
+      _routeDistanceTraveled = snapped.distanceAlongRoute;
+      _targetRouteDistance = snapped.distanceAlongRoute;
+      _targetHeading = onRoute.bearing;
+      _driverHeading = onRoute.bearing;
+      _navigationCameraBearing = onRoute.bearing;
+      _driverPosition = onRoute.point;
+      _ensureNavigationSmoothingActive();
+    } else {
+      _updateNavigationHeading();
+    }
+    notifyListeners();
+  }
+
+  Future<void> _maybeRefreshPickupRoute() async {
+    if (!_hasActivePickup || !hasAcceptedRide) return;
+
+    final now = DateTime.now();
+    if (_lastPickupRouteRefreshAt != null &&
+        now.difference(_lastPickupRouteRefreshAt!) <
+            const Duration(seconds: 20)) {
+      return;
+    }
+
+    final origin = _driverPosition;
+    final lastOrigin = _lastPickupRouteOrigin;
+    if (lastOrigin != null) {
+      final moved = Geolocator.distanceBetween(
+        lastOrigin.latitude,
+        lastOrigin.longitude,
+        origin.latitude,
+        origin.longitude,
+      );
+      if (moved < 80) return;
+    }
+
+    _lastPickupRouteRefreshAt = now;
+    _lastPickupRouteOrigin = origin;
+
+    final points = await DirectionsService.fetchDrivingRoute(
+      origin: origin,
+      destination: _pickupLocation,
+    );
+    if (points.length < 2 || !_hasActivePickup) return;
+
+    _fullRoutePoints = points;
+    final snapped = RideRouteProgress.snapToRoute(points, _gpsPosition);
+    final minDistance =
+        (_targetRouteDistance - 20).clamp(0.0, double.infinity);
+    final alongRoute = snapped.distanceAlongRoute < minDistance
+        ? minDistance
+        : snapped.distanceAlongRoute;
+    final onRoute = RideRouteProgress.positionAtDistance(points, alongRoute);
+    _targetRouteDistance = alongRoute;
+    _targetHeading = onRoute.bearing;
+    _ensureNavigationSmoothingActive();
+    notifyListeners();
   }
 
   void _clearRideRoute() {
     _fullRoutePoints = [];
     _routeDistanceTraveled = 0;
+    _targetRouteDistance = 0;
+    _targetHeading = 0;
+    _navigationCameraBearing = 0;
+    _lastCameraFollowPosition = null;
     _rideMapIconsReady = false;
+    _lastPickupRouteRefreshAt = null;
+    _lastPickupRouteOrigin = null;
+    _stopNavigationSmoothing();
   }
 
-  bool get _shouldFollowRoute =>
+  bool get _shouldSnapToRoute =>
       hasAcceptedRide && _activeRoutePoints.length >= 2;
-
-  List<LatLng> _buildRoutePoints(
-    LatLng start,
-    LatLng pickup,
-    LatLng destination,
-  ) {
-    final bendOne = LatLng(
-      (start.latitude + pickup.latitude) / 2 + 0.003,
-      (start.longitude + pickup.longitude) / 2 - 0.004,
-    );
-    final bendTwo = LatLng(
-      (pickup.latitude + destination.latitude) / 2 - 0.002,
-      (pickup.longitude + destination.longitude) / 2 + 0.005,
-    );
-    return [start, bendOne, pickup, bendTwo, destination];
-  }
 
   void _updateNavigationHeading() {
     final target = _hasActiveTrip
@@ -2365,131 +2664,6 @@ class HomeController extends ChangeNotifier {
     );
   }
 
-  void _animateDriverMarkerTo(LatLng target, {bool notify = false}) {
-    _driverAnimationTimer?.cancel();
-
-    if (_shouldFollowRoute) {
-      _animateDriverMarkerAlongRoute(target, notify: notify);
-      return;
-    }
-
-    final from = _driverPosition;
-    final distance = Geolocator.distanceBetween(
-      from.latitude,
-      from.longitude,
-      target.latitude,
-      target.longitude,
-    );
-
-    if (distance < 2) {
-      _applyDriverPosition(target, notify: notify);
-      return;
-    }
-
-    final durationMs = (1000 + distance * 15).round().clamp(800, 3000);
-    final startTime = DateTime.now();
-    final fromLat = from.latitude;
-    final fromLng = from.longitude;
-    final latDiff = target.latitude - fromLat;
-    final lngDiff = target.longitude - fromLng;
-
-    _driverAnimationTimer = Timer.periodic(const Duration(milliseconds: 16), (
-      timer,
-    ) {
-      final elapsed = DateTime.now().difference(startTime);
-      final progress =
-          (elapsed.inMilliseconds / durationMs).clamp(0.0, 1.0).toDouble();
-      final eased = RideRouteProgress.easedProgress(progress);
-
-      _applyDriverPosition(
-        LatLng(fromLat + latDiff * eased, fromLng + lngDiff * eased),
-        notify: false,
-        checkArrival: false,
-      );
-      if (_hasActiveTrip) {
-        unawaited(_followDriverNavigationCamera());
-      }
-
-      if (progress >= 1.0) {
-        timer.cancel();
-        _driverAnimationTimer = null;
-        _applyDriverPosition(target, notify: notify);
-        return;
-      }
-
-      if (!notify) return;
-
-      final now = DateTime.now();
-      if (now.difference(_lastAnimationNotifyAt) <
-          const Duration(milliseconds: 50)) {
-        return;
-      }
-      _lastAnimationNotifyAt = now;
-      notifyListeners();
-    });
-  }
-
-  void _animateDriverMarkerAlongRoute(LatLng rawTarget, {bool notify = false}) {
-    final route = _activeRoutePoints;
-    final snapped = RideRouteProgress.snapToRoute(route, rawTarget);
-    final minDistance =
-        (_routeDistanceTraveled - 15).clamp(0.0, double.infinity);
-    final toDistance = snapped.distanceAlongRoute < minDistance
-        ? minDistance
-        : snapped.distanceAlongRoute;
-
-    final fromDistance = _routeDistanceTraveled;
-    final delta = toDistance - fromDistance;
-
-    if (delta.abs() < 2) {
-      final pos = RideRouteProgress.positionAtDistance(route, toDistance);
-      _routeDistanceTraveled = toDistance;
-      _applyDriverPosition(pos.point, notify: notify);
-      return;
-    }
-
-    final durationMs = (1000 + delta.abs() * 15).round().clamp(800, 3000);
-    final startTime = DateTime.now();
-
-    _driverAnimationTimer = Timer.periodic(const Duration(milliseconds: 16), (
-      timer,
-    ) {
-      final elapsed = DateTime.now().difference(startTime);
-      final progress =
-          (elapsed.inMilliseconds / durationMs).clamp(0.0, 1.0).toDouble();
-      final eased = RideRouteProgress.easedProgress(progress);
-      final currentDistance = fromDistance + delta * eased;
-      final pos = RideRouteProgress.positionAtDistance(route, currentDistance);
-
-      _routeDistanceTraveled = currentDistance;
-      _applyDriverPosition(pos.point, notify: false, checkArrival: false);
-      if (_hasActiveTrip) {
-        unawaited(_followDriverNavigationCamera());
-      }
-
-      if (progress >= 1.0) {
-        timer.cancel();
-        _driverAnimationTimer = null;
-        _routeDistanceTraveled = toDistance;
-        _applyDriverPosition(
-          RideRouteProgress.positionAtDistance(route, toDistance).point,
-          notify: notify,
-        );
-        return;
-      }
-
-      if (!notify) return;
-
-      final now = DateTime.now();
-      if (now.difference(_lastAnimationNotifyAt) <
-          const Duration(milliseconds: 50)) {
-        return;
-      }
-      _lastAnimationNotifyAt = now;
-      notifyListeners();
-    });
-  }
-
   Future<void> _fitRouteCamera() async {
     final controller = _mapController;
     if (controller == null || _activeRoutePoints.isEmpty) return;
@@ -2519,56 +2693,56 @@ class HomeController extends ChangeNotifier {
     );
   }
 
-  void _setDriverPosition(
-    LatLng position, {
-    bool notify = false,
-    bool animate = false,
-  }) {
-    if (animate && _hasDriverMarker) {
-      _animateDriverMarkerTo(position, notify: notify);
+  void _setDriverPosition(LatLng position, {bool notify = false}) {
+    _gpsPosition = position;
+
+    if (!_shouldSnapToRoute) {
+      _applyDriverPosition(position, notify: notify);
       return;
     }
-    if (_shouldFollowRoute) {
-      final route = _activeRoutePoints;
-      final snapped = RideRouteProgress.snapToRoute(route, position);
-      final minDistance =
-          (_routeDistanceTraveled - 15).clamp(0.0, double.infinity);
-      _routeDistanceTraveled = snapped.distanceAlongRoute < minDistance
-          ? minDistance
-          : snapped.distanceAlongRoute;
-      final snappedPosition = RideRouteProgress.positionAtDistance(
-        route,
-        _routeDistanceTraveled,
-      ).point;
-      _applyDriverPosition(snappedPosition, notify: notify);
-      return;
+
+    final route = _activeRoutePoints;
+    final snapped = RideRouteProgress.snapToRoute(route, position);
+    final minDistance =
+        (_targetRouteDistance - 20).clamp(0.0, double.infinity);
+    final alongRoute = snapped.distanceAlongRoute < minDistance
+        ? minDistance
+        : snapped.distanceAlongRoute;
+    final onRoute = RideRouteProgress.positionAtDistance(route, alongRoute);
+    _targetRouteDistance = alongRoute;
+    _targetHeading = onRoute.bearing;
+
+    if (!_hasDriverMarker) {
+      _routeDistanceTraveled = alongRoute;
+      _driverHeading = _targetHeading;
+      _applyDriverPosition(
+        onRoute.point,
+        notify: notify,
+        skipHeadingUpdate: true,
+      );
     }
-    _applyDriverPosition(position, notify: notify);
+
+    _ensureNavigationSmoothingActive();
   }
 
   void _applyDriverPosition(
     LatLng position, {
     required bool notify,
-    bool checkArrival = true,
+    bool skipHeadingUpdate = false,
   }) {
     final previous = _driverPosition;
     final changed = (previous.latitude - position.latitude).abs() > 0.000001 ||
         (previous.longitude - position.longitude).abs() > 0.000001;
     _cameraTarget = position;
-    if (changed && _hasDriverMarker) {
+    if (changed && _hasDriverMarker && !skipHeadingUpdate) {
       _updateDriverHeadingFromMovement(previous, position);
     }
     _driverPosition = position;
     _hasDriverMarker = true;
-    final arrivalTriggered =
-        checkArrival ? _checkAddedStopArrival(position) : false;
-    if (_hasActiveTrip && changed) {
-      unawaited(_followDriverNavigationCamera());
-    }
     if (_hasActivePickup) {
       _maybeNotifyPickupEtaChanged();
     }
-    if (notify && (changed || hasAcceptedRide || arrivalTriggered)) {
+    if (notify && (changed || hasAcceptedRide)) {
       notifyListeners();
     }
   }
@@ -2599,7 +2773,7 @@ class HomeController extends ChangeNotifier {
   @override
   void dispose() {
     stopLocationUpdates();
-    _driverAnimationTimer?.cancel();
+    _stopNavigationSmoothing();
     stopNearbyRidesPolling();
     stopRideStatusPolling();
     _stopPickupEtaTracking();
