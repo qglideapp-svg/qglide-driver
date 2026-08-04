@@ -119,6 +119,28 @@ class RideRouteProgress {
     );
   }
 
+  /// Snaps GPS to the route while biasing forward so the car does not flip
+  /// onto an earlier segment at intersections or tight corners.
+  static RoutePosition snapToRouteAhead(
+    List<LatLng> route,
+    LatLng point, {
+    required double minDistanceAlongRoute,
+    double lookBehindMeters = 25,
+  }) {
+    if (route.length < 2) {
+      return snapToRoute(route, point);
+    }
+
+    final minAllowed =
+        (minDistanceAlongRoute - lookBehindMeters).clamp(0.0, double.infinity);
+    final snapped = snapToRoute(route, point);
+    final alongRoute = snapped.distanceAlongRoute < minAllowed
+        ? minAllowed
+        : snapped.distanceAlongRoute;
+
+    return positionAtDistance(route, alongRoute);
+  }
+
   static RoutePosition positionAtDistance(List<LatLng> route, double distance) {
     if (route.isEmpty) {
       return RoutePosition(

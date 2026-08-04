@@ -60,6 +60,7 @@ class _HomeViewState extends ConsumerState<HomeView>
   String? _shownRiderStopNotificationKey;
   String? _shownAddedStopArrivalKey;
   String? _shownHomeAdKey;
+  DateTime? _lastLocationErrorToastAt;
 
   @override
   void initState() {
@@ -301,9 +302,7 @@ class _HomeViewState extends ConsumerState<HomeView>
   Future<void> _handleGoOnlinePressedAsync() async {
     final error = await _controller.toggleOnlineStatus();
     if (!mounted || error == null) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error)),
-    );
+    _showLocationErrorSnackBar(error);
   }
 
   Future<void> _handleAcceptRide() async {
@@ -416,19 +415,38 @@ class _HomeViewState extends ConsumerState<HomeView>
   }
 
   Future<void> _handleCenterOnUser() async {
-    final result = await _controller.centerOnUser();
+    final result = await _controller.centerOnUser(forceRefresh: true);
     if (!mounted || result.isOk) return;
 
     final s = AppStringsScope.of(context);
+    _showLocationErrorSnackBar(
+      result.error!,
+      settingsAction: result.settingsAction,
+      settingsLabel: s.settings,
+    );
+  }
+
+  void _showLocationErrorSnackBar(
+    String message, {
+    LocationSettingsAction? settingsAction,
+    String? settingsLabel,
+  }) {
+    final now = DateTime.now();
+    final last = _lastLocationErrorToastAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 30)) {
+      return;
+    }
+    _lastLocationErrorToastAt = now;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(result.error!),
-        action: result.settingsAction == null
+        content: Text(message),
+        action: settingsAction == null || settingsLabel == null
             ? null
             : SnackBarAction(
-                label: s.settings,
+                label: settingsLabel,
                 onPressed: () {
-                  switch (result.settingsAction!) {
+                  switch (settingsAction) {
                     case LocationSettingsAction.appSettings:
                       unawaited(Geolocator.openAppSettings());
                     case LocationSettingsAction.locationServices:
@@ -887,60 +905,17 @@ class _DashboardHeader extends StatelessWidget {
   }
 }
 
-class _MapSection extends ConsumerStatefulWidget {
+class _MapSection extends ConsumerWidget {
   const _MapSection({required this.showMap});
 
   final bool showMap;
 
   @override
-  ConsumerState<_MapSection> createState() => _MapSectionState();
-}
-
-class _MapSectionState extends ConsumerState<_MapSection> {
-  var _canRenderMap = false;
-  var _lastMapSessionId = -1;
-  ProviderSubscription<HomeController>? _controllerSubscription;
-
-  @override
-  void initState() {
-    super.initState();
-    _lastMapSessionId = ref.read(homeControllerProvider).mapSessionId;
-    _scheduleMapRender();
-    _controllerSubscription = ref.listenManual<HomeController>(
-      homeControllerProvider,
-      (previous, next) {
-        if (next.mapSessionId == _lastMapSessionId) return;
-        _lastMapSessionId = next.mapSessionId;
-        if (!mounted) return;
-        setState(() => _canRenderMap = false);
-        _scheduleMapRender();
-      },
-    );
-  }
-
-  void _scheduleMapRender() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() => _canRenderMap = true);
-    });
-  }
-
-  @override
-  void dispose() {
-    _controllerSubscription?.close();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.watch(homeControllerProvider);
     final dashboard = DashboardTheme.of(context);
 
-    if (!widget.showMap) {
-      return ColoredBox(color: dashboard.mapFallback);
-    }
-
-    if (!_canRenderMap) {
+    if (!showMap) {
       return ColoredBox(color: dashboard.mapFallback);
     }
 
@@ -958,6 +933,7 @@ class _MapSectionState extends ConsumerState<_MapSection> {
       zoomControlsEnabled: false,
       mapToolbarEnabled: false,
       compassEnabled: false,
+      liteModeEnabled: false,
       minMaxZoomPreference: controller.hasActiveTrip
           ? const MinMaxZoomPreference(17, 20)
           : MinMaxZoomPreference.unbounded,

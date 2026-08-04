@@ -51,12 +51,8 @@ class DriverOnlineTaskHandler extends TaskHandler {
 
       await AuthService.refreshSessionIfNeeded();
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 12),
-        ),
-      );
+      final position = await _resolveHeartbeatPosition();
+      if (position == null) return;
 
       final heading = position.heading;
       await AuthService.updateDriverLocation(
@@ -74,6 +70,33 @@ class DriverOnlineTaskHandler extends TaskHandler {
       }
     } finally {
       _heartbeatInFlight = false;
+    }
+  }
+
+  /// Prefer a recent last-known fix so FGS heartbeats do not compete with the
+  /// UI position stream for a fresh high-accuracy GPS lock.
+  Future<Position?> _resolveHeartbeatPosition() async {
+    const maxCachedAge = Duration(seconds: 30);
+
+    try {
+      final cached = await Geolocator.getLastKnownPosition();
+      if (cached != null) {
+        final age = DateTime.now().difference(cached.timestamp);
+        if (age <= maxCachedAge) return cached;
+      }
+
+      try {
+        return await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.medium,
+            timeLimit: Duration(seconds: 20),
+          ),
+        );
+      } catch (_) {
+        return cached;
+      }
+    } catch (_) {
+      return null;
     }
   }
 }

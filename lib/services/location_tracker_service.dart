@@ -54,9 +54,13 @@ class LocationAccessResult {
 class LocationTrackerService {
   LocationTrackerService._();
 
+  static const _defaultMaxCachedAge = Duration(seconds: 45);
+
   static Future<LocationAccessResult> getCurrentLocation({
     bool requestPermissionIfNeeded = true,
     bool resolvePlaceName = false,
+    Duration maxCachedAge = _defaultMaxCachedAge,
+    bool allowStaleLastKnown = true,
   }) async {
     final access = await _ensureLocationAccess(
       requestIfNeeded: requestPermissionIfNeeded,
@@ -65,34 +69,60 @@ class LocationTrackerService {
       return access;
     }
 
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 12),
-        ),
-      );
+    Position? position = await _readCachedPosition(maxAge: maxCachedAge);
+    position ??= await _readFreshPosition();
 
-      String? placeName;
-      if (resolvePlaceName) {
-        placeName = await _resolvePlaceName(
-          position.latitude,
-          position.longitude,
-        );
-      }
+    if (position == null && allowStaleLastKnown) {
+      position = await Geolocator.getLastKnownPosition();
+    }
 
-      return LocationAccessResult.success(
-        DriverLocation(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          placeName: placeName,
-        ),
-      );
-    } catch (_) {
+    if (position == null) {
       return const LocationAccessResult.error(
         'Could not get your location. Make sure GPS is enabled and try again.',
         LocationSettingsAction.locationServices,
       );
+    }
+
+    String? placeName;
+    if (resolvePlaceName) {
+      placeName = await _resolvePlaceName(
+        position.latitude,
+        position.longitude,
+      );
+    }
+
+    return LocationAccessResult.success(
+      DriverLocation(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        placeName: placeName,
+      ),
+    );
+  }
+
+  static Future<Position?> _readCachedPosition({
+    required Duration maxAge,
+  }) async {
+    try {
+      final cached = await Geolocator.getLastKnownPosition();
+      if (cached == null) return null;
+
+      final age = DateTime.now().difference(cached.timestamp);
+      if (age <= maxAge) return cached;
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<Position?> _readFreshPosition() async {
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+    } catch (_) {
+      return null;
     }
   }
 

@@ -85,6 +85,7 @@ class HomeController extends ChangeNotifier {
   var _pendingCameraBearing = 0.0;
   var _pendingNavigationCamera = false;
   var _mapSessionId = 0;
+  DateTime? _lastMapSurfaceRefreshAt;
   var _isInitializingHomeMap = false;
   var _mapSurfaceReady = false;
   DateTime? _lastNavigationCameraUpdate;
@@ -118,7 +119,15 @@ class HomeController extends ChangeNotifier {
   static const _cameraMinMoveMeters = 12.0;
   static const _cameraMinBearingDelta = 8.0;
   static const _cameraMinSpeedMps = 1.5;
+  static const _headingMinSpeedMps = 2.0;
+  static const _headingMinDeltaDegrees = 10.0;
+  static const _routeTargetMinAdvanceMeters = 0.8;
+  static const _routeTargetMaxBackwardMeters = 5.0;
+  static const _markerNotifyMinMoveMeters = 1.0;
+  static const _routeFreezeSpeedMps = 1.8;
+  static const _routeFreezeDistanceMeters = 8.0;
   static const _routeDistanceSmoothFactor = 0.22;
+  static const _routeDistanceSmoothFactorSlow = 0.12;
   static const _headingSmoothFactor = 0.18;
 
   Timer? _nearbyRidesPollingTimer;
@@ -148,14 +157,18 @@ class HomeController extends ChangeNotifier {
   NearbyRideOffer? _persistedRideOffer;
 
   BitmapDescriptor? _driverCarIcon;
+  BitmapDescriptor? _pickupPinIcon;
   var _rideMapIconsReady = false;
   var _driverHeading = 0.0;
   var _pickupLocation = defaultPosition;
   var _destinationLocation = defaultPosition;
   var _pickupLegStartPosition = defaultPosition;
   var _fullRoutePoints = <LatLng>[];
+  List<LatLng> _cachedDestinationRoute = const [];
+  LatLng? _cachedDestinationLatLng;
   DateTime? _lastPickupRouteRefreshAt;
   LatLng? _lastPickupRouteOrigin;
+  var _routeFetchGeneration = 0;
   final _acknowledgedStopKeys = <String>{};
   final _arrivedAtStopKeys = <String>{};
   RiderStopNotification? _pendingRiderStopNotification;
@@ -258,6 +271,13 @@ class HomeController extends ChangeNotifier {
   bool get showsRidePanel => _hasActiveRide || _hasActiveTrip;
   bool get hasAcceptedRide =>
       _hasActivePickup || _hasActiveRide || _hasActiveTrip;
+
+  bool get _shouldShowRiderPickupPin =>
+      (_hasActivePickup || _hasActiveRide || _isPendingRideAcceptance) &&
+      _riderPickupLatLng != null;
+
+  LatLng? get _riderPickupLatLng =>
+      _acceptedRideOffer?.pickupLatLng ?? _currentRideOffer?.pickupLatLng;
   DashboardTab get selectedTab => _selectedTab;
   LatLng get cameraTarget => _cameraTarget;
   bool get locationReady => _locationReady;
@@ -297,9 +317,11 @@ class HomeController extends ChangeNotifier {
   }
 
   Set<Marker> get markers {
+    final markers = <Marker>{};
+
     final driverIcon = _driverCarIcon;
     if (showsDriverPointer && driverIcon != null) {
-      return {
+      markers.add(
         Marker(
           markerId: const MarkerId('driver_location'),
           position: _driverPosition,
@@ -308,13 +330,28 @@ class HomeController extends ChangeNotifier {
           flat: true,
           rotation: _driverHeading,
         ),
-      };
+      );
     }
-    return {};
+
+    final pickupIcon = _pickupPinIcon;
+    final pickupLatLng = _riderPickupLatLng;
+    if (_shouldShowRiderPickupPin && pickupIcon != null && pickupLatLng != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('rider_pickup'),
+          position: pickupLatLng,
+          icon: pickupIcon,
+          anchor: const Offset(0.5, 1.0),
+          zIndexInt: 1,
+        ),
+      );
+    }
+
+    return markers;
   }
 
   Set<Polyline> get polylines {
-    if (!mapSurfaceReady || !hasAcceptedRide || _fullRoutePoints.length < 2) {
+    if (!hasAcceptedRide || _fullRoutePoints.length < 2) {
       return {};
     }
 
@@ -364,16 +401,24 @@ class HomeController extends ChangeNotifier {
 
     try {
       if (targetStatus) {
-        final locationResult = await LocationTrackerService.getCurrentLocation();
-        if (!locationResult.isSuccess) {
-          return locationResult.error ??
-              AppStrings.current().locationRequiredForOnline;
+        if (_locationReady) {
+          latitude = _gpsPosition.latitude;
+          longitude = _gpsPosition.longitude;
+          _setDriverPosition(LatLng(latitude, longitude), notify: true);
+          unawaited(_showDriverPointerAtCurrentLocation());
+        } else {
+          final locationResult =
+              await LocationTrackerService.getCurrentLocation();
+          if (!locationResult.isSuccess) {
+            return locationResult.error ??
+                AppStrings.current().locationRequiredForOnline;
+          }
+          latitude = locationResult.location!.latitude;
+          longitude = locationResult.location!.longitude;
+          _setDriverPosition(LatLng(latitude, longitude));
+          _locationReady = true;
+          _locationDenied = false;
         }
-        latitude = locationResult.location!.latitude;
-        longitude = locationResult.location!.longitude;
-        _setDriverPosition(LatLng(latitude, longitude));
-        _locationReady = true;
-        _locationDenied = false;
       }
 
       _isOnline = targetStatus;
@@ -523,28 +568,46 @@ class HomeController extends ChangeNotifier {
   void _onGpsPosition(Position position) {
     final target = LatLng(position.latitude, position.longitude);
     _gpsPosition = target;
+    if (!_locationReady) {
+      _locationReady = true;
+      _locationDenied = false;
+    }
+    if (_driverCarIcon == null) {
+      unawaited(_showDriverPointerAtCurrentLocation());
+    }
     _lastGpsSpeedMps = position.speed >= 0 ? position.speed : 0;
     if (!_shouldSnapToRoute) {
       _applyDeviceHeading(position);
     }
-    _setDriverPosition(target, notify: true);
+    _setDriverPosition(target, notify: !_shouldSnapToRoute);
     if (_checkAddedStopArrival(_gpsPosition)) {
       notifyListeners();
     }
     _maybeSyncLocationToBackend();
     if (_hasActivePickup && hasAcceptedRide) {
-      unawaited(_maybeRefreshPickupRoute());
+      if (_fullRoutePoints.length < 2) {
+        unawaited(_setupRideRoute());
+      } else {
+        unawaited(_maybeRefreshPickupRoute());
+      }
+    } else if (_hasActiveTrip && hasAcceptedRide && _fullRoutePoints.length < 2) {
+      unawaited(_setupRideRoute());
     }
   }
 
   void _applyDeviceHeading(Position position) {
     final heading = position.heading;
-    if (position.speed >= 1 &&
-        heading >= 0 &&
-        heading <= 360 &&
-        !heading.isNaN) {
-      _driverHeading = heading;
+    if (position.speed < _headingMinSpeedMps ||
+        heading < 0 ||
+        heading > 360 ||
+        heading.isNaN) {
+      return;
     }
+
+    final delta = _angleDelta(_driverHeading, heading).abs();
+    if (delta < _headingMinDeltaDegrees) return;
+
+    _driverHeading = _lerpAngle(_driverHeading, heading, 0.35);
   }
 
   void _maybeSyncLocationToBackend() {
@@ -875,6 +938,14 @@ class HomeController extends ChangeNotifier {
   /// Recreates the native map surface after iOS/Android destroys it in background.
   void refreshMapSurfaceOnResume() {
     if (hasAcceptedRide) return;
+
+    final now = DateTime.now();
+    final last = _lastMapSurfaceRefreshAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 30)) {
+      return;
+    }
+    _lastMapSurfaceRefreshAt = now;
+
     detachMapController();
     notifyListeners();
   }
@@ -1507,7 +1578,8 @@ class HomeController extends ChangeNotifier {
     _stopPickupEtaTracking();
     stopNearbyRidesPolling();
     startLocationUpdates();
-    unawaited(_setupRideRoute());
+    _showDestinationRouteNow();
+    unawaited(_refreshTripRouteIfNeeded());
     _updateNavigationHeading();
     if (prepareMap || !_rideMapIconsReady) {
       unawaited(_prepareRideMap());
@@ -1533,8 +1605,8 @@ class HomeController extends ChangeNotifier {
     _stopPickupEtaTracking();
     stopNearbyRidesPolling();
     startLocationUpdates();
+    _showDestinationRouteNow();
     unawaited(_setupRideRoute());
-    _driverPosition = _pickupLocation;
     _updateNavigationHeading();
     if (prepareMap || !_rideMapIconsReady) {
       unawaited(_prepareRideMap());
@@ -1938,6 +2010,7 @@ class HomeController extends ChangeNotifier {
       _startPickupEtaTracking(offer.id);
       startRideStatusPolling();
       startLocationUpdates();
+      unawaited(_ensureRideMapIcons());
       unawaited(_fetchRideStatus());
       return null;
     } finally {
@@ -1968,6 +2041,11 @@ class HomeController extends ChangeNotifier {
     try {
       await _ensureDriverPositionForPolling();
 
+      final offer = _acceptedRideOffer;
+      if (offer != null) {
+        unawaited(_prefetchDestinationRoute(offer));
+      }
+
       final response = await AuthService.driverArrivedPickup(
         rideId: rideId,
         latitude: _driverPosition.latitude,
@@ -1981,7 +2059,6 @@ class HomeController extends ChangeNotifier {
         );
       }
 
-      final offer = _acceptedRideOffer;
       if (offer == null) {
         return AppStrings.current().errNoActiveRidePickup;
       }
@@ -2018,7 +2095,9 @@ class HomeController extends ChangeNotifier {
       _hasActiveRide = false;
       _hasActiveTrip = true;
       _persistAcceptedRide(_acceptedRideOffer);
+      _showDestinationRouteNow();
       _updateNavigationHeading();
+      unawaited(_refreshTripRouteIfNeeded());
       unawaited(_updateRideMapCamera(animated: true));
       return null;
     } finally {
@@ -2216,7 +2295,6 @@ class HomeController extends ChangeNotifier {
   void attachMapController(GoogleMapController controller) {
     _mapController = controller;
     _mapSurfaceReady = false;
-    notifyListeners();
     unawaited(
       _onHomeMapCreated().whenComplete(() {
         _mapSurfaceReady = true;
@@ -2232,8 +2310,6 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> _onHomeMapCreated() async {
-    await _syncMapCamera(animated: false);
-
     if (!_locationReady && !_isInitializingHomeMap) {
       _isInitializingHomeMap = true;
       try {
@@ -2241,13 +2317,10 @@ class HomeController extends ChangeNotifier {
       } finally {
         _isInitializingHomeMap = false;
       }
-    } else {
-      await _syncMapCamera(animated: true);
     }
 
-    await Future<void>.delayed(const Duration(milliseconds: 350));
     if (_mapController == null) return;
-    await _syncMapCamera(animated: true);
+    await _syncMapCamera(animated: false);
   }
 
   Future<void> _syncMapCamera({required bool animated}) async {
@@ -2271,26 +2344,39 @@ class HomeController extends ChangeNotifier {
         await controller.moveCamera(update);
       }
     } on PlatformException {
-      if (!hasAcceptedRide) {
-        refreshMapSurfaceOnResume();
-      }
-    } catch (_) {
-      if (!hasAcceptedRide) {
-        refreshMapSurfaceOnResume();
-      }
-    }
+      // Ignore transient camera failures during map init/resume.
+    } catch (_) {}
   }
 
   Future<void> initializeLocation() async {
-    final result = await centerOnUser();
+    if (_locationReady) {
+      _hasDriverMarker = true;
+      await _showDriverPointerAtCurrentLocation();
+      if (_isOnline || _isEnRouteForLocation) {
+        startLocationUpdates();
+      }
+      return;
+    }
+
+    final result = await centerOnUser(forceRefresh: false);
     if (!result.isOk) return;
   }
 
-  Future<LocationAccessResult> centerOnUser() async {
-    final result = await LocationTrackerService.getCurrentLocation();
+  Future<LocationAccessResult> centerOnUser({bool forceRefresh = true}) async {
+    if (!forceRefresh && _locationReady) {
+      _hasDriverMarker = true;
+      await _showDriverPointerAtCurrentLocation();
+      return const LocationAccessResult.ok();
+    }
+
+    final result = await LocationTrackerService.getCurrentLocation(
+      allowStaleLastKnown: !forceRefresh,
+    );
     if (!result.isOk) {
-      _locationDenied = true;
-      notifyListeners();
+      if (forceRefresh) {
+        _locationDenied = true;
+        notifyListeners();
+      }
       return result;
     }
 
@@ -2310,7 +2396,8 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> _showDriverPointerAtCurrentLocation() async {
-    _driverCarIcon ??= await MapMarkerIcons.driverCarMarker();
+    if (_driverCarIcon != null) return;
+    _driverCarIcon = await MapMarkerIcons.driverCarMarker();
     notifyListeners();
   }
 
@@ -2351,10 +2438,20 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> _prepareRideMap() async {
-    _driverCarIcon ??= await MapMarkerIcons.driverCarMarker();
+    await _ensureRideMapIcons();
     _rideMapIconsReady = true;
     notifyListeners();
     await _updateRideMapCamera(animated: true);
+  }
+
+  Future<void> _ensureRideMapIcons() async {
+    final needsNotify =
+        _driverCarIcon == null || _pickupPinIcon == null;
+    _driverCarIcon ??= await MapMarkerIcons.driverCarMarker();
+    _pickupPinIcon ??= await MapMarkerIcons.pickupPin();
+    if (needsNotify) {
+      notifyListeners();
+    }
   }
 
   Future<void> _updateRideMapCamera({bool animated = false}) async {
@@ -2473,17 +2570,34 @@ class HomeController extends ChangeNotifier {
     if (route.length < 2) return;
 
     final distDelta = _targetRouteDistance - _routeDistanceTraveled;
-    if (distDelta.abs() > 0.3) {
-      _routeDistanceTraveled += distDelta * _routeDistanceSmoothFactor;
-    } else {
-      _routeDistanceTraveled = _targetRouteDistance;
+
+    // Hard-freeze the car when stopped or crawling — GPS jitter causes shake.
+    if (_lastGpsSpeedMps < _routeFreezeSpeedMps &&
+        distDelta.abs() < _routeFreezeDistanceMeters) {
+      return;
     }
 
-    _driverHeading = _lerpAngle(
-      _driverHeading,
-      _targetHeading,
-      _headingSmoothFactor,
-    );
+    final headingDelta = _angleDelta(_driverHeading, _targetHeading).abs();
+    if (distDelta.abs() < 0.15 && headingDelta < 3) {
+      return;
+    }
+
+    if (distDelta.abs() > 0.15) {
+      final factor = _lastGpsSpeedMps >= 4
+          ? _routeDistanceSmoothFactor
+          : _routeDistanceSmoothFactorSlow;
+      final maxStep = (_lastGpsSpeedMps * 0.055).clamp(0.15, 2.5);
+      final step = (distDelta * factor).clamp(-maxStep, maxStep);
+      _routeDistanceTraveled += step;
+    }
+
+    if (headingDelta >= 3 && _lastGpsSpeedMps >= _routeFreezeSpeedMps) {
+      _driverHeading = _lerpAngle(
+        _driverHeading,
+        _targetHeading,
+        _headingSmoothFactor,
+      );
+    }
 
     final onRoute =
         RideRouteProgress.positionAtDistance(route, _routeDistanceTraveled);
@@ -2492,9 +2606,119 @@ class HomeController extends ChangeNotifier {
       notify: true,
       skipHeadingUpdate: true,
     );
+  }
 
-    if (_hasActiveTrip) {
-      _maybeFollowNavigationCamera();
+  void _advanceRouteTargetFromGps(double alongRoute, List<LatLng> route) {
+    final delta = alongRoute - _targetRouteDistance;
+
+    if (_lastGpsSpeedMps < _routeFreezeSpeedMps) {
+      if (delta.abs() < 6) return;
+    } else if (delta < -_routeTargetMaxBackwardMeters) {
+      _targetRouteDistance = alongRoute;
+    } else if (delta > _routeTargetMinAdvanceMeters) {
+      _targetRouteDistance = alongRoute;
+    } else {
+      return;
+    }
+
+    final onRoute =
+        RideRouteProgress.positionAtDistance(route, _targetRouteDistance);
+    _updateTargetHeading(onRoute.bearing);
+  }
+
+  bool _coordinatesNear(LatLng a, LatLng b, {double thresholdMeters = 120}) {
+    return Geolocator.distanceBetween(
+          a.latitude,
+          a.longitude,
+          b.latitude,
+          b.longitude,
+        ) <=
+        thresholdMeters;
+  }
+
+  void _cacheDestinationRoute(List<LatLng> points, LatLng destination) {
+    if (points.length < 2) return;
+    _cachedDestinationRoute = points;
+    _cachedDestinationLatLng = destination;
+  }
+
+  void _showDestinationRouteNow() {
+    _resolveDestinationForOffer(_acceptedRideOffer);
+
+    if (_fullRoutePoints.length >= 2) {
+      _syncCarToActiveRoute(notify: true);
+      return;
+    }
+
+    if (_cachedDestinationRoute.length >= 2 &&
+        _cachedDestinationLatLng != null &&
+        _coordinatesNear(_cachedDestinationLatLng!, _destinationLocation)) {
+      _fullRoutePoints = _cachedDestinationRoute;
+      _syncCarToActiveRoute(notify: true);
+    }
+  }
+
+  Future<void> _refreshTripRouteIfNeeded() async {
+    if (!_hasActiveTrip) return;
+
+    final endpoints = _resolveRouteEndpoints();
+    if (_fullRoutePoints.length >= 2 &&
+        _cachedDestinationLatLng != null &&
+        _coordinatesNear(_cachedDestinationLatLng!, endpoints.end)) {
+      final distFromRouteStart = Geolocator.distanceBetween(
+        endpoints.start.latitude,
+        endpoints.start.longitude,
+        _fullRoutePoints.first.latitude,
+        _fullRoutePoints.first.longitude,
+      );
+      if (distFromRouteStart < 200) {
+        return;
+      }
+    }
+
+    await _fetchAndApplyRoute(
+      origin: endpoints.start,
+      destination: endpoints.end,
+      generation: ++_routeFetchGeneration,
+      showOverviewImmediately: true,
+    );
+  }
+
+  void _syncCarToActiveRoute({required bool notify}) {
+    if (_fullRoutePoints.length < 2) return;
+
+    final snapFrom = _locationReady ? _gpsPosition : _driverPosition;
+    final minDist =
+        (_targetRouteDistance - 30).clamp(0.0, double.infinity);
+    final snapped = RideRouteProgress.snapToRouteAhead(
+      _fullRoutePoints,
+      snapFrom,
+      minDistanceAlongRoute: minDist,
+    );
+    final alongRoute = snapped.distanceAlongRoute;
+    final onRoute = RideRouteProgress.positionAtDistance(
+      _fullRoutePoints,
+      alongRoute,
+    );
+
+    _targetRouteDistance = alongRoute;
+    _routeDistanceTraveled = alongRoute;
+    _targetHeading = onRoute.bearing;
+
+    final jumpMeters = Geolocator.distanceBetween(
+      _driverPosition.latitude,
+      _driverPosition.longitude,
+      onRoute.point.latitude,
+      onRoute.point.longitude,
+    );
+    if (jumpMeters > 1.5 || !_hasDriverMarker) {
+      _driverPosition = onRoute.point;
+      _driverHeading = onRoute.bearing;
+    }
+
+    _ensureNavigationSmoothingActive();
+    if (notify) {
+      notifyListeners();
     }
   }
 
@@ -2507,9 +2731,20 @@ class HomeController extends ChangeNotifier {
     return ((to - from + 540) % 360) - 180;
   }
 
-  Future<void> _setupRideRoute() async {
+  Future<void> _prefetchDestinationRoute(NearbyRideOffer offer) async {
+    _resolveDestinationForOffer(offer);
+    final origin = _locationReady ? _gpsPosition : _driverPosition;
+    final destination = _destinationLocation;
+    await _fetchAndApplyRoute(
+      origin: origin,
+      destination: destination,
+      generation: ++_routeFetchGeneration,
+      showOverviewImmediately: true,
+    );
+  }
+
+  void _resolveDestinationForOffer(NearbyRideOffer? offer) {
     final origin = _hasDriverMarker ? _driverPosition : defaultPosition;
-    final offer = _acceptedRideOffer ?? _currentRideOffer;
     _pickupLocation = offer?.pickupLatLng ??
         LatLng(
           origin.latitude + 0.012,
@@ -2524,46 +2759,94 @@ class HomeController extends ChangeNotifier {
         offer?.requestedDropoffLatLng != null) {
       _destinationLocation = offer!.requestedDropoffLatLng!;
     }
+  }
 
-    late LatLng start;
-    late LatLng end;
+  ({LatLng start, LatLng end}) _resolveRouteEndpoints() {
+    final origin = _hasDriverMarker ? _driverPosition : defaultPosition;
+    final offer = _acceptedRideOffer ?? _currentRideOffer;
+    _resolveDestinationForOffer(offer);
+
     if (_hasActivePickup) {
       _pickupLegStartPosition = origin;
-      start = origin;
-      end = _pickupLocation;
-    } else if (_hasActiveRide || _hasActiveTrip) {
-      start = _pickupLocation;
-      end = _destinationLocation;
-    } else {
-      start = origin;
-      end = _pickupLocation;
+      return (
+        start: _locationReady ? _gpsPosition : origin,
+        end: _pickupLocation,
+      );
     }
 
-    final points = await DirectionsService.fetchDrivingRoute(
-      origin: start,
-      destination: end,
-    );
-    _fullRoutePoints = points.length >= 2 ? points : [start, end];
-    _routeDistanceTraveled = 0;
-    _targetRouteDistance = 0;
-    if (_fullRoutePoints.length >= 2) {
-      final snapFrom = _locationReady ? _gpsPosition : origin;
-      final snapped = RideRouteProgress.snapToRoute(_fullRoutePoints, snapFrom);
-      final onRoute = RideRouteProgress.positionAtDistance(
-        _fullRoutePoints,
-        snapped.distanceAlongRoute,
+    if (_hasActiveTrip) {
+      return (
+        start: _locationReady ? _gpsPosition : _driverPosition,
+        end: _destinationLocation,
       );
-      _routeDistanceTraveled = snapped.distanceAlongRoute;
-      _targetRouteDistance = snapped.distanceAlongRoute;
-      _targetHeading = onRoute.bearing;
-      _driverHeading = onRoute.bearing;
-      _navigationCameraBearing = onRoute.bearing;
-      _driverPosition = onRoute.point;
-      _ensureNavigationSmoothingActive();
-    } else {
-      _updateNavigationHeading();
     }
-    notifyListeners();
+
+    if (_hasActiveRide) {
+      return (
+        start: _pickupLocation,
+        end: _destinationLocation,
+      );
+    }
+
+    return (start: origin, end: _pickupLocation);
+  }
+
+  Future<void> _setupRideRoute() async {
+    final endpoints = _resolveRouteEndpoints();
+    await _fetchAndApplyRoute(
+      origin: endpoints.start,
+      destination: endpoints.end,
+      generation: ++_routeFetchGeneration,
+      showOverviewImmediately: true,
+    );
+  }
+
+  Future<void> _fetchAndApplyRoute({
+    required LatLng origin,
+    required LatLng destination,
+    required int generation,
+    required bool showOverviewImmediately,
+  }) async {
+    final points = await DirectionsService.fetchDrivingRoute(
+      origin: origin,
+      destination: destination,
+      onOverviewReady: showOverviewImmediately
+          ? (overview) {
+              if (generation != _routeFetchGeneration) return;
+              _applyFetchedRoute(
+                overview,
+                snapFrom: _locationReady ? _gpsPosition : origin,
+                destination: destination,
+              );
+            }
+          : null,
+    );
+
+    if (generation != _routeFetchGeneration) return;
+    if (points.length >= 2) {
+      _applyFetchedRoute(
+        points,
+        snapFrom: _locationReady ? _gpsPosition : origin,
+        destination: destination,
+      );
+    } else if (_fullRoutePoints.length < 2) {
+      _fullRoutePoints = [];
+      notifyListeners();
+    }
+  }
+
+  void _applyFetchedRoute(
+    List<LatLng> points, {
+    required LatLng snapFrom,
+    LatLng? destination,
+  }) {
+    _fullRoutePoints = points;
+    if (destination != null &&
+        _coordinatesNear(destination, _destinationLocation, thresholdMeters: 80)) {
+      _cacheDestinationRoute(points, _destinationLocation);
+    }
+
+    _syncCarToActiveRoute(notify: true);
   }
 
   Future<void> _maybeRefreshPickupRoute() async {
@@ -2576,7 +2859,7 @@ class HomeController extends ChangeNotifier {
       return;
     }
 
-    final origin = _driverPosition;
+    final origin = _locationReady ? _gpsPosition : _driverPosition;
     final lastOrigin = _lastPickupRouteOrigin;
     if (lastOrigin != null) {
       final moved = Geolocator.distanceBetween(
@@ -2598,21 +2881,23 @@ class HomeController extends ChangeNotifier {
     if (points.length < 2 || !_hasActivePickup) return;
 
     _fullRoutePoints = points;
-    final snapped = RideRouteProgress.snapToRoute(points, _gpsPosition);
-    final minDistance =
-        (_targetRouteDistance - 20).clamp(0.0, double.infinity);
-    final alongRoute = snapped.distanceAlongRoute < minDistance
-        ? minDistance
-        : snapped.distanceAlongRoute;
+    final snapped = RideRouteProgress.snapToRouteAhead(
+      points,
+      _gpsPosition,
+      minDistanceAlongRoute: _targetRouteDistance,
+    );
+    final alongRoute = snapped.distanceAlongRoute;
     final onRoute = RideRouteProgress.positionAtDistance(points, alongRoute);
     _targetRouteDistance = alongRoute;
-    _targetHeading = onRoute.bearing;
+    _updateTargetHeading(onRoute.bearing);
     _ensureNavigationSmoothingActive();
     notifyListeners();
   }
 
   void _clearRideRoute() {
     _fullRoutePoints = [];
+    _cachedDestinationRoute = const [];
+    _cachedDestinationLatLng = null;
     _routeDistanceTraveled = 0;
     _targetRouteDistance = 0;
     _targetHeading = 0;
@@ -2643,25 +2928,35 @@ class HomeController extends ChangeNotifier {
   }
 
   void _updateDriverHeadingFromMovement(LatLng previous, LatLng next) {
+    if (_lastGpsSpeedMps < _headingMinSpeedMps) return;
+
     final distance = Geolocator.distanceBetween(
       previous.latitude,
       previous.longitude,
       next.latitude,
       next.longitude,
     );
-    if (distance < 2) {
-      if (hasAcceptedRide) {
-        _updateNavigationHeading();
-      }
-      return;
-    }
+    if (distance < 4) return;
 
-    _driverHeading = Geolocator.bearingBetween(
+    final bearing = Geolocator.bearingBetween(
       previous.latitude,
       previous.longitude,
       next.latitude,
       next.longitude,
     );
+    final delta = _angleDelta(_driverHeading, bearing).abs();
+    if (delta < _headingMinDeltaDegrees) return;
+
+    _driverHeading = _lerpAngle(_driverHeading, bearing, 0.4);
+  }
+
+  void _updateTargetHeading(double bearing) {
+    final delta = _angleDelta(_targetHeading, bearing).abs();
+    if (_lastGpsSpeedMps < _headingMinSpeedMps && delta < 25) {
+      return;
+    }
+    if (delta < 4) return;
+    _targetHeading = bearing;
   }
 
   Future<void> _fitRouteCamera() async {
@@ -2702,26 +2997,17 @@ class HomeController extends ChangeNotifier {
     }
 
     final route = _activeRoutePoints;
-    final snapped = RideRouteProgress.snapToRoute(route, position);
-    final minDistance =
-        (_targetRouteDistance - 20).clamp(0.0, double.infinity);
-    final alongRoute = snapped.distanceAlongRoute < minDistance
-        ? minDistance
-        : snapped.distanceAlongRoute;
-    final onRoute = RideRouteProgress.positionAtDistance(route, alongRoute);
-    _targetRouteDistance = alongRoute;
-    _targetHeading = onRoute.bearing;
-
-    if (!_hasDriverMarker) {
-      _routeDistanceTraveled = alongRoute;
-      _driverHeading = _targetHeading;
-      _applyDriverPosition(
-        onRoute.point,
-        notify: notify,
-        skipHeadingUpdate: true,
-      );
+    if (route.length < 2) {
+      _applyDriverPosition(position, notify: notify);
+      return;
     }
 
+    final snapped = RideRouteProgress.snapToRouteAhead(
+      route,
+      position,
+      minDistanceAlongRoute: _targetRouteDistance,
+    );
+    _advanceRouteTargetFromGps(snapped.distanceAlongRoute, route);
     _ensureNavigationSmoothingActive();
   }
 
@@ -2731,8 +3017,13 @@ class HomeController extends ChangeNotifier {
     bool skipHeadingUpdate = false,
   }) {
     final previous = _driverPosition;
-    final changed = (previous.latitude - position.latitude).abs() > 0.000001 ||
-        (previous.longitude - position.longitude).abs() > 0.000001;
+    final movedMeters = Geolocator.distanceBetween(
+      previous.latitude,
+      previous.longitude,
+      position.latitude,
+      position.longitude,
+    );
+    final changed = movedMeters > 0.000001;
     _cameraTarget = position;
     if (changed && _hasDriverMarker && !skipHeadingUpdate) {
       _updateDriverHeadingFromMovement(previous, position);
@@ -2742,7 +3033,16 @@ class HomeController extends ChangeNotifier {
     if (_hasActivePickup) {
       _maybeNotifyPickupEtaChanged();
     }
-    if (notify && (changed || hasAcceptedRide)) {
+    if (!notify) return;
+
+    if (_hasActiveTrip || _shouldSnapToRoute) {
+      if (movedMeters >= _markerNotifyMinMoveMeters) {
+        notifyListeners();
+      }
+      return;
+    }
+
+    if (changed || hasAcceptedRide) {
       notifyListeners();
     }
   }
