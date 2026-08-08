@@ -128,6 +128,10 @@ class PushNotificationService {
   static Future<void> Function(String action, Map<String, dynamic> data)?
       onRideRequestNotificationAction;
 
+  /// Called when the rider cancels a ride that is still shown to the driver.
+  static Future<void> Function(Map<String, dynamic> data)?
+      onRideCancelledNotification;
+
   static var _pendingRideActionInvoked = false;
   static var _launchPayloadCaptured = false;
   static Timer? _iosTokenRetryTimer;
@@ -330,6 +334,21 @@ class PushNotificationService {
     }
   }
 
+  /// Registers for APNs before Firebase phone verification on iOS.
+  static Future<void> prepareIosForPhoneAuth() async {
+    if (kIsWeb || !Platform.isIOS) return;
+
+    try {
+      await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    } catch (_) {}
+
+    await _registerForRemoteNotificationsNative();
+  }
+
   static Future<bool> wasNativeRideRequestRecentlyShown(String rideId) async {
     if (rideId.isEmpty) return false;
 
@@ -373,6 +392,26 @@ class PushNotificationService {
         data['notification_type']?.toString().trim().toLowerCase();
     return type == 'new_ride_request' ||
         notificationType == 'new_ride_request';
+  }
+
+  static bool isRideCancellationNotification(Map<String, dynamic> data) {
+    final rideId = data['ride_id']?.toString() ?? data['id']?.toString();
+    if (rideId == null || rideId.isEmpty) return false;
+
+    final type = data['type']?.toString().trim().toLowerCase();
+    final notificationType =
+        data['notification_type']?.toString().trim().toLowerCase();
+    if (type == 'ride_cancelled' ||
+        type == 'ride_canceled' ||
+        type == 'ride_cancelled_by_rider' ||
+        type == 'cancelled_ride' ||
+        notificationType == 'ride_cancelled' ||
+        notificationType == 'ride_canceled') {
+      return true;
+    }
+
+    final status = data['status']?.toString().trim().toLowerCase();
+    return status == 'cancelled' || status == 'canceled';
   }
 
   /// Logs notification pipeline issues in release builds (visible via logcat).
@@ -1222,6 +1261,16 @@ class PushNotificationService {
       return;
     }
 
+    final cancellationData = Map<String, dynamic>.from(message.data);
+    if (isRideCancellationNotification(cancellationData)) {
+      if (_isAppReady) {
+        unawaited(_invokeRideCancelledHandler(cancellationData));
+      } else {
+        _handleNotificationData(cancellationData);
+      }
+      return;
+    }
+
     await showLocalNotificationForMessage(message);
   }
 
@@ -1247,6 +1296,11 @@ class PushNotificationService {
 
     if (isRideRequestNotification(data)) {
       _openRideRequestFromNotification(data);
+      return;
+    }
+
+    if (isRideCancellationNotification(data)) {
+      unawaited(_invokeRideCancelledHandler(data));
       return;
     }
 
@@ -1292,6 +1346,19 @@ class PushNotificationService {
   ) async {
     for (var attempt = 0; attempt < 40; attempt++) {
       final handler = onRideRequestNotificationOpened;
+      if (handler != null) {
+        await handler(data);
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
+
+  static Future<void> _invokeRideCancelledHandler(
+    Map<String, dynamic> data,
+  ) async {
+    for (var attempt = 0; attempt < 40; attempt++) {
+      final handler = onRideCancelledNotification;
       if (handler != null) {
         await handler(data);
         return;

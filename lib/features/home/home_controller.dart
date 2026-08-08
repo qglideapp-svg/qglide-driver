@@ -41,6 +41,8 @@ class HomeController extends ChangeNotifier {
         handleRideRequestNotificationOpened;
     PushNotificationService.onRideRequestNotificationAction =
         handleRideRequestNotificationAction;
+    PushNotificationService.onRideCancelledNotification =
+        handleRideCancelledNotification;
   }
 
   /// Processes any ride-request notification payloads/actions once Home is mounted.
@@ -55,6 +57,8 @@ class HomeController extends ChangeNotifier {
   var _isLoadingTodayStats = true;
   var _isRefreshingDashboard = false;
   var _hasLoadedDashboardStats = false;
+  var _sessionRecoveryRequired = false;
+  String? _sessionRecoveryMessage;
   var _isLoadingSignupBonus = false;
   SignupPerformanceBonus? _signupPerformanceBonus;
   var _isLoadingWalletBalance = false;
@@ -177,6 +181,14 @@ class HomeController extends ChangeNotifier {
   bool get isOnline => _isOnline;
   bool get isUpdatingOnlineStatus => _isUpdatingOnlineStatus;
   bool get isLoadingTodayStats => _isLoadingTodayStats;
+  bool get sessionRecoveryRequired => _sessionRecoveryRequired;
+  String? get sessionRecoveryMessage => _sessionRecoveryMessage;
+
+  void clearSessionRecoveryRequired() {
+    if (!_sessionRecoveryRequired) return;
+    _sessionRecoveryRequired = false;
+    _sessionRecoveryMessage = null;
+  }
   bool get isLoadingSignupBonus => _isLoadingSignupBonus;
   SignupPerformanceBonus? get signupPerformanceBonus => _signupPerformanceBonus;
   bool get isLoadingReferDriver => !_referralStateLoaded;
@@ -832,7 +844,12 @@ class HomeController extends ChangeNotifier {
     }
 
     try {
-      final response = await AuthService.getDriverTodayStats();
+      var response = await AuthService.getDriverTodayStats();
+      if (!_isSuccessfulStatsResponse(response)) {
+        await AuthService.maintainSession();
+        response = await AuthService.getDriverTodayStats();
+      }
+
       final today = AuthService.extractTodayStats(response);
 
       if (today != null) {
@@ -863,9 +880,12 @@ class HomeController extends ChangeNotifier {
             if (isCurrentlyOnline is bool) {
               _isOnline = isCurrentlyOnline;
               _hasSyncedOnlineFromStats = true;
+              _applyOnlineSideEffects(_isOnline);
             }
           }
         }
+      } else {
+        await _maybeRequireSessionRecovery(response);
       }
     } finally {
       _isLoadingTodayStats = false;
@@ -874,6 +894,46 @@ class HomeController extends ChangeNotifier {
       }
       notifyListeners();
     }
+  }
+
+  static bool _isSuccessfulStatsResponse(Map<String, dynamic> response) {
+    if (response['success'] == true) return true;
+    if (response['retryable'] == true) return false;
+    if (AuthService.isUnauthorizedResponse(response)) return false;
+    final message = AuthService.extractErrorMessage(response).toLowerCase();
+    return !message.contains('not logged in') &&
+        !message.contains('sign in again') &&
+        !message.contains('unauthorized') &&
+        !message.contains('session expired');
+  }
+
+  Future<void> _maybeRequireSessionRecovery(
+    Map<String, dynamic>? response,
+  ) async {
+    if (response != null && response['retryable'] == true) return;
+
+    if (response != null &&
+        AuthService.isAccountBlockedResponse(response)) {
+      _sessionRecoveryRequired = true;
+      _sessionRecoveryMessage =
+          AppStrings.current().accountBlockedContactSupport;
+      return;
+    }
+
+    final needsRecovery = response?['session_recovery_required'] == true ||
+        (response != null && AuthService.isUnauthorizedResponse(response)) ||
+        !AuthService.hasValidSession;
+
+    if (!needsRecovery) return;
+
+    if (AuthService.hasValidSession) return;
+
+    await AuthService.maintainSession();
+    if (AuthService.hasValidSession) return;
+
+    _sessionRecoveryRequired = true;
+    _sessionRecoveryMessage =
+        AppStrings.current().sessionExpiredSignInAgain;
   }
 
   DateTime? _lastDashboardResumeAt;
@@ -894,6 +954,7 @@ class HomeController extends ChangeNotifier {
       return;
     }
     _lastDashboardResumeAt = now;
+    _hasSyncedOnlineFromStats = false;
 
     if (!hasAcceptedRide) {
       refreshMapSurfaceOnResume();
@@ -903,7 +964,15 @@ class HomeController extends ChangeNotifier {
 
     _isRefreshingDashboard = true;
     try {
-      await AuthService.maintainSession();
+      final sessionOk = await AuthService.maintainSession();
+      if (!sessionOk) {
+        await _maybeRequireSessionRecovery(null);
+        if (_sessionRecoveryRequired) {
+          notifyListeners();
+          return;
+        }
+      }
+
       unawaited(PushNotificationService.registerTokenIfLoggedIn());
       if (_isOnline || _isEnRouteForLocation) {
         startLocationUpdates();
@@ -1265,7 +1334,8 @@ class HomeController extends ChangeNotifier {
   void startRideStatusPolling() {
     if (!_isOnline &&
         !_isPendingRideAcceptance &&
-        !hasAcceptedRide) {
+        !hasAcceptedRide &&
+        !_hasRideRequest) {
       return;
     }
 
@@ -1290,6 +1360,9 @@ class HomeController extends ChangeNotifier {
     if (hasAcceptedRide || _isPendingRideAcceptance) {
       return _acceptedRideOffer?.id;
     }
+    if (_hasRideRequest) {
+      return _currentRideOffer?.id;
+    }
     return null;
   }
 
@@ -1298,19 +1371,27 @@ class HomeController extends ChangeNotifier {
     if (!allowWhenOffline &&
         !_isOnline &&
         !_isPendingRideAcceptance &&
-        !hasAcceptedRide) {
+        !hasAcceptedRide &&
+        !_hasRideRequest) {
       return;
     }
 
     _isFetchingRideStatus = true;
     try {
+      final pollRideId = _rideStatusPollRideId;
       final response = await AuthService.getDriverRideStatus(
-        rideId: _rideStatusPollRideId,
+        rideId: pollRideId,
       );
       final ride = AuthService.extractDriverRideStatus(response);
 
       if (ride == null) {
         if (_isPendingRideAcceptance) return;
+        if (_hasRideRequest &&
+            pollRideId != null &&
+            pollRideId == _currentRideOffer?.id) {
+          dismissRideRequest();
+          notifyListeners();
+        }
         return;
       }
 
@@ -1386,10 +1467,14 @@ class HomeController extends ChangeNotifier {
       return enteringPickup || etaChanged || notification != null;
     }
 
-    if (status == 'cancelled' ||
-        status == 'canceled' ||
-        status == 'declined' ||
-        status == 'completed') {
+    if (NearbyRideOffer.isTerminalStatus(status)) {
+      final requestRideId = _currentRideOffer?.id;
+      if (_hasRideRequest &&
+          requestRideId != null &&
+          requestRideId == offer.id) {
+        dismissRideRequest();
+        return true;
+      }
       if (!hasAcceptedRide && !_isPendingRideAcceptance) return false;
       _resetActiveRideFlow();
       return true;
@@ -1690,6 +1775,38 @@ class HomeController extends ChangeNotifier {
         return;
       }
 
+      if (_hasRideRequest && _currentRideOffer != null) {
+        final currentId = _currentRideOffer!.id;
+        Map<String, dynamic>? currentRideMap;
+        for (final ride in rides) {
+          if (ride['id']?.toString() == currentId) {
+            currentRideMap = ride;
+            break;
+          }
+        }
+
+        if (currentRideMap == null) {
+          dismissRideRequest();
+          return;
+        }
+
+        final currentOffer = NearbyRideOffer.fromMap(currentRideMap);
+        if (currentOffer == null || !currentOffer.isPending) {
+          dismissRideRequest();
+          return;
+        }
+
+        final shouldRefreshCurrent = _currentRideOffer?.pickupEtaMinutes !=
+            currentOffer.pickupEtaMinutes;
+        _showRideRequest(
+          currentOffer.withRetainedDetailsFrom(_currentRideOffer),
+        );
+        if (shouldRefreshCurrent) {
+          notifyListeners();
+        }
+        return;
+      }
+
       final offer = NearbyRideOffer.fromMap(rides.first);
       if (offer == null || !offer.isPending) {
         if (_hasRideRequest) {
@@ -1741,6 +1858,7 @@ class HomeController extends ChangeNotifier {
 
     _currentRideOffer = offer;
     _hasRideRequest = true;
+    startRideStatusPolling();
   }
 
   /// Opens the accept panel after the driver taps a ride-request notification.
@@ -1761,6 +1879,36 @@ class HomeController extends ChangeNotifier {
     unawaited(_refreshRideRequestAfterNotificationOpened(data));
   }
 
+  /// Dismisses a stale ride-request panel when the rider cancels.
+  Future<void> handleRideCancelledNotification(
+    Map<String, dynamic> data,
+  ) async {
+    final rideId =
+        data['ride_id']?.toString() ?? data['id']?.toString();
+    if (rideId == null || rideId.isEmpty) return;
+
+    unawaited(RideRequestSoundService.stop());
+    unawaited(PushNotificationService.cancelRideRequestNotification(rideId));
+
+    if (_hasRideRequest && _currentRideOffer?.id == rideId) {
+      dismissRideRequest();
+      return;
+    }
+
+    if ((_isPendingRideAcceptance && _pendingAcceptRideId == rideId) ||
+        (_acceptedRideOffer?.id == rideId &&
+            !_hasActiveTrip &&
+            !_hasActiveRide)) {
+      _resetActiveRideFlow();
+      notifyListeners();
+      return;
+    }
+
+    if (_hasRideRequest) {
+      unawaited(_fetchRideStatus(allowWhenOffline: true));
+    }
+  }
+
   /// Accepts or declines a ride from a notification action button.
   Future<void> handleRideRequestNotificationAction(
     String action,
@@ -1772,19 +1920,7 @@ class HomeController extends ChangeNotifier {
     if (rideId == null || rideId.isEmpty) return;
 
     if (action == AppConstants.rideRequestNotificationActionIgnore) {
-      if (_isAcceptingRide || _isDecliningRide || hasAcceptedRide) return;
-
-      _isDecliningRide = true;
-      notifyListeners();
-      try {
-        await AuthService.rideResponse(rideId: rideId, action: 'decline');
-        _isPendingRideAcceptance = false;
-        _pendingAcceptRideId = null;
-        dismissRideRequest();
-      } finally {
-        _isDecliningRide = false;
-        notifyListeners();
-      }
+      await declineRideRequest();
       return;
     }
 
@@ -1892,8 +2028,7 @@ class HomeController extends ChangeNotifier {
       final offer = NearbyRideOffer.fromMap(rideMap);
       if (offer == null || !offer.isPending) {
         if (_hasRideRequest &&
-            rideId != null &&
-            _currentRideOffer?.id == rideId) {
+            (rideId == null || _currentRideOffer?.id == rideId)) {
           dismissRideRequest();
         }
         return;
@@ -1921,27 +2056,36 @@ class HomeController extends ChangeNotifier {
     _hasRideRequest = false;
     _openedRideRequestFromNotification = false;
     _currentRideOffer = null;
+    if (!hasAcceptedRide && !_isPendingRideAcceptance) {
+      stopRideStatusPolling();
+    }
     notifyListeners();
   }
 
-  Future<void> declineRideRequest() async {
-    if (_isAcceptingRide || _isDecliningRide) return;
+  Future<String?> declineRideRequest() async {
+    if (_isAcceptingRide || _isDecliningRide) return null;
 
     final rideId = _currentRideOffer?.id ?? _pendingAcceptRideId;
     if (rideId == null || rideId.isEmpty) {
       _isPendingRideAcceptance = false;
       _pendingAcceptRideId = null;
       dismissRideRequest();
-      return;
+      return null;
     }
 
     _isDecliningRide = true;
     notifyListeners();
     try {
-      await AuthService.rideResponse(rideId: rideId, action: 'decline');
+      final response =
+          await AuthService.rideResponse(rideId: rideId, action: 'decline');
       _isPendingRideAcceptance = false;
       _pendingAcceptRideId = null;
       dismissRideRequest();
+      if (response['success'] == true ||
+          AuthService.isRideAlreadyCancelledResponse(response)) {
+        return null;
+      }
+      return AuthService.extractErrorMessage(response);
     } finally {
       _isDecliningRide = false;
       notifyListeners();
@@ -1970,6 +2114,13 @@ class HomeController extends ChangeNotifier {
       );
 
       if (response['success'] != true) {
+        if (AuthService.isRideAlreadyCancelledResponse(response)) {
+          dismissRideRequest();
+          if (_isOnline) {
+            startNearbyRidesPolling();
+          }
+          return null;
+        }
         if (_isOnline) {
           startNearbyRidesPolling();
         }

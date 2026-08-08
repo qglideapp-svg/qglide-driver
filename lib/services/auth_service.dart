@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../config/api_config.dart';
+import '../config/app_strings.dart';
 import 'app_locale_service.dart';
 import 'apple_sign_in_service.dart';
 import '../features/home/models/deposit_payment.dart';
@@ -27,6 +28,7 @@ import '../routes/app_routes.dart';
 import 'driver_status_service.dart';
 import 'phone_verification_service.dart';
 import 'screen_wake_service.dart';
+import 'secure_session_storage.dart';
 
 class OAuthSignupPrefill {
   const OAuthSignupPrefill({
@@ -64,6 +66,8 @@ class AuthService {
   static const _referralActiveKey = 'referral_active';
   static const _referralRepollEmailKey = 'referral_repoll_email';
   static const _referralRepollPasswordKey = 'referral_repoll_password';
+  static const _nativeNotificationAccessTokenKey =
+      'native_notification_access_token';
   static const _refreshLeadTime = Duration(minutes: 5);
   static const _sessionRefreshInterval = Duration(minutes: 20);
 
@@ -82,10 +86,11 @@ class AuthService {
       _accessToken != null && _accessToken!.isNotEmpty;
   static bool get isAccessTokenExpired {
     if (_accessToken == null || _accessToken!.isEmpty) return true;
-    final expiresAt = _tokenExpiresAt;
-    if (expiresAt == null) return false;
+    final expiresAt = _tokenExpiresAt ?? _accessTokenExpiryFromJwt();
+    if (expiresAt == null) return true;
     return !DateTime.now().toUtc().isBefore(expiresAt);
   }
+  static bool get hasValidSession => isLoggedIn && !isAccessTokenExpired;
   static bool get hasStoredSession =>
       isLoggedIn || (_refreshToken != null && _refreshToken!.isNotEmpty);
   static bool get hasCompletedOnboarding => _onboardingCompleted;
@@ -109,17 +114,24 @@ class AuthService {
   /// Reads persisted session fields from disk only — no network refresh.
   static Future<void> loadStoredSessionFromDisk() async {
     final prefs = await _prefs();
+
+    final snapshot = await SecureSessionStorage.read(prefs: prefs);
+    _accessToken = snapshot.accessToken;
+    _refreshToken = snapshot.refreshToken;
+    if (snapshot.expiresAtMs != null) {
+      _tokenExpiresAt = DateTime.fromMillisecondsSinceEpoch(
+        snapshot.expiresAtMs!,
+        isUtc: true,
+      );
+    } else {
+      _tokenExpiresAt = null;
+    }
+
+    await _mirrorNativeNotificationAccessToken(_accessToken);
+
     if (prefs == null) return;
 
-    _accessToken = prefs.getString(_accessTokenKey);
-    _refreshToken = prefs.getString(_refreshTokenKey);
     _onboardingCompleted = prefs.getBool(_onboardingCompletedKey) ?? false;
-
-    final expiresAtMs = prefs.getInt(_tokenExpiresAtKey);
-    if (expiresAtMs != null) {
-      _tokenExpiresAt =
-          DateTime.fromMillisecondsSinceEpoch(expiresAtMs, isUtc: true);
-    }
 
     _referralCode = prefs.getString(_referralCodeKey);
     final storedReferralActive = prefs.getBool(_referralActiveKey);
@@ -144,7 +156,11 @@ class AuthService {
       await refreshSessionIfNeeded(force: true);
     }
 
-    if (hasRefreshToken) {
+    if (!hasValidSession && (isLoggedIn || hasRefreshToken)) {
+      await _tryRecoverExpiredSession();
+    }
+
+    if (_refreshToken != null && _refreshToken!.isNotEmpty) {
       startSessionRefresh();
     }
   }
@@ -343,10 +359,10 @@ class AuthService {
   /// Drivers remain signed in until they explicitly log out.
   static Future<bool> recoverStoredSession() async {
     await ensureSessionRestored();
-    if (isLoggedIn) return true;
-    if (await bootstrapPendingSignupSession()) return true;
-    if (await _reauthenticateFromStoredCredentials()) return true;
-    return hasStoredSession;
+    if (hasValidSession) return true;
+    if (await bootstrapPendingSignupSession()) return hasValidSession;
+    if (await _tryRecoverExpiredSession()) return hasValidSession;
+    return hasValidSession;
   }
 
   static Future<bool> _reauthenticateFromStoredCredentials() async {
@@ -404,10 +420,13 @@ class AuthService {
     _refreshToken = null;
     _tokenExpiresAt = null;
 
+    await SecureSessionStorage.clear();
+
     final prefs = await _prefs();
     await prefs?.remove(_accessTokenKey);
     await prefs?.remove(_refreshTokenKey);
     await prefs?.remove(_tokenExpiresAtKey);
+    await prefs?.remove(_nativeNotificationAccessTokenKey);
     await _clearReferralState();
   }
 
@@ -475,7 +494,36 @@ class AuthService {
     final message = extractErrorMessage(response).toLowerCase();
     return message.contains('unauthorized') ||
         message.contains('invalid or expired token') ||
-        message.contains('jwt expired');
+        message.contains('jwt expired') ||
+        message.contains('invalid jwt') ||
+        message.contains('invalid token') ||
+        message.contains('token expired') ||
+        message.contains('jwt malformed');
+  }
+
+  static bool isAuthErrorMessage(String? message) {
+    if (message == null || message.isEmpty) return false;
+    final lower = message.toLowerCase();
+    return lower.contains('unauthorized') ||
+        lower.contains('invalid jwt') ||
+        lower.contains('invalid token') ||
+        lower.contains('token expired') ||
+        lower.contains('jwt expired') ||
+        lower.contains('jwt malformed') ||
+        lower.contains('invalid or expired token') ||
+        lower.contains('not logged in') ||
+        lower.contains('sign in again') ||
+        lower.contains('session expired');
+  }
+
+  static String sanitizeAuthErrorMessage(String? message) {
+    if (isAuthErrorMessage(message)) {
+      return AppStrings.current().sessionExpiredSignInAgain;
+    }
+    if (message == null || message.isEmpty) {
+      return AppStrings.current().sessionExpiredSignInAgain;
+    }
+    return message;
   }
 
   static bool isSessionInvalidResponse(Map<String, dynamic> response) {
@@ -489,6 +537,75 @@ class AuthService {
     return message.contains('profile not found') ||
         message.contains('user profile not found') ||
         message.contains('user not found');
+  }
+
+  static bool isAccountBlockedResponse(Map<String, dynamic> response) {
+    if (response['success'] == true) return false;
+
+    final message = extractErrorMessage(response).toLowerCase();
+    return message.contains('account is inactive') ||
+        message.contains('account must be active') ||
+        message.contains('account disabled') ||
+        message.contains('account is suspended') ||
+        message.contains('suspended') && message.contains('account') ||
+        message.contains('inactive') && message.contains('driver');
+  }
+
+  static bool isAuthFailureResponse(Map<String, dynamic> response) {
+    return isUnauthorizedResponse(response) ||
+        isAccountBlockedResponse(response) ||
+        isUserDeletedResponse(response);
+  }
+
+  static bool isRefreshTokenInvalidResponse(int statusCode, String body) {
+    if (body.isEmpty) {
+      return statusCode == 400 || statusCode == 401;
+    }
+
+    try {
+      final decoded = json.decode(body);
+      if (decoded is! Map<String, dynamic>) {
+        return statusCode == 400 || statusCode == 401;
+      }
+
+      final error = decoded['error']?.toString().toLowerCase();
+      final description =
+          decoded['error_description']?.toString().toLowerCase() ?? '';
+      if (error == 'invalid_grant') return true;
+      if (description.contains('invalid refresh token')) return true;
+      if (description.contains('refresh token not found')) return true;
+      if (description.contains('token has been revoked')) return true;
+      if (description.contains('account disabled')) return true;
+      return statusCode == 400 || statusCode == 401;
+    } catch (_) {
+      final lower = body.toLowerCase();
+      return lower.contains('invalid_grant') ||
+          lower.contains('invalid refresh token');
+    }
+  }
+
+  static bool isRetryableNetworkError(Object error) {
+    if (error is TimeoutException) return true;
+    if (error is SocketException) return true;
+    if (error is http.ClientException) return true;
+    if (error is HandshakeException) return true;
+    return false;
+  }
+
+  static bool isHardSessionFailureResponse(Map<String, dynamic> response) {
+    return isAuthFailureResponse(response) || isUserDeletedResponse(response);
+  }
+
+  /// Clears tokens after an unrecoverable session failure.
+  static Future<void> invalidateSessionAfterHardFailure() async {
+    await clearAccessToken();
+  }
+
+  /// True when refresh/re-auth failed and the user must sign in again.
+  static Future<bool> requiresLoginAfterRecoveryAttempt() async {
+    await loadStoredSessionFromDisk();
+    await _tryRecoverExpiredSession();
+    return !hasValidSession;
   }
 
   static Future<bool> hasPendingSignupCredentials() async {
@@ -554,7 +671,7 @@ class AuthService {
       if (stored != null) {
         return DriverStatusService.resolveRoute(status: stored);
       }
-      return DriverAccessRoute.dashboard;
+      return null;
     }
 
     var status = DriverStatusService.merge(
@@ -701,21 +818,38 @@ class AuthService {
       _tokenExpiresAt = expiresAt;
     }
 
+    await SecureSessionStorage.write(
+      accessToken: accessToken,
+      refreshToken: _refreshToken,
+      expiresAt: _tokenExpiresAt,
+    );
+
+    await _mirrorNativeNotificationAccessToken(accessToken);
+
     final prefs = await _prefs();
     if (prefs == null) {
       return;
     }
 
-    await prefs.setString(_accessTokenKey, accessToken);
-    if (_refreshToken != null) {
-      await prefs.setString(_refreshTokenKey, _refreshToken!);
+    // Legacy keys removed after migration; keep delete for older installs.
+    await prefs.remove(_accessTokenKey);
+    await prefs.remove(_refreshTokenKey);
+    await prefs.remove(_tokenExpiresAtKey);
+  }
+
+  /// Mirrors the bearer token for native Android notification Accept/Cancel.
+  static Future<void> _mirrorNativeNotificationAccessToken(
+    String? accessToken,
+  ) async {
+    final prefs = await _prefs();
+    if (prefs == null) return;
+
+    if (accessToken == null || accessToken.isEmpty) {
+      await prefs.remove(_nativeNotificationAccessTokenKey);
+      return;
     }
-    if (_tokenExpiresAt != null) {
-      await prefs.setInt(
-        _tokenExpiresAtKey,
-        _tokenExpiresAt!.millisecondsSinceEpoch,
-      );
-    }
+
+    await prefs.setString(_nativeNotificationAccessTokenKey, accessToken);
   }
 
   static Future<void> _persistSessionFromAuthData(
@@ -1056,14 +1190,37 @@ class AuthService {
     });
   }
 
-  /// Force-refreshes the session and restarts the 20-minute polling timer.
-  static Future<void> maintainSession() async {
-    if (_refreshToken == null || _refreshToken!.isEmpty) {
-      return;
+  /// Reloads persisted tokens and re-establishes auth after idle/background.
+  static Future<bool> maintainSession() async {
+    await loadStoredSessionFromDisk();
+    final recovered = await _tryRecoverExpiredSession();
+
+    if (_refreshToken != null && _refreshToken!.isNotEmpty) {
+      startSessionRefresh();
     }
 
-    await refreshSessionIfNeeded(force: true);
-    startSessionRefresh();
+    return recovered && hasValidSession;
+  }
+
+  /// Refreshes or silently re-authenticates when the access token is stale.
+  static Future<bool> _tryRecoverExpiredSession() async {
+    if (hasValidSession) return true;
+
+    final hasRefreshToken =
+        _refreshToken != null && _refreshToken!.isNotEmpty;
+    if (hasRefreshToken) {
+      await refreshSessionIfNeeded(force: true);
+      if (hasValidSession) return true;
+    }
+
+    if (await _reauthenticateFromStoredCredentials() && hasValidSession) {
+      return true;
+    }
+    if (await _reauthenticateFromGoogleSilently() && hasValidSession) {
+      return true;
+    }
+
+    return hasValidSession;
   }
 
   static void stopSessionRefresh() {
@@ -1078,7 +1235,7 @@ class AuthService {
     }
 
     if (_refreshToken == null || _refreshToken!.isEmpty) {
-      return isLoggedIn;
+      return hasValidSession;
     }
 
     if (!force && _tokenExpiresAt != null) {
@@ -1106,15 +1263,43 @@ class AuthService {
           )
           .timeout(const Duration(seconds: 15));
 
+      final body = response.body;
+
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        // Keep stored credentials; the refresh timer will retry later.
-        return isLoggedIn || hasStoredSession;
+        if (isRefreshTokenInvalidResponse(response.statusCode, body)) {
+          if (await _reauthenticateFromStoredCredentials()) {
+            return true;
+          }
+          if (await _reauthenticateFromGoogleSilently()) {
+            return true;
+          }
+          await invalidateSessionAfterHardFailure();
+          return false;
+        }
+
+        if (response.statusCode >= 500) {
+          return hasValidSession || hasStoredSession;
+        }
+
+        if (await _reauthenticateFromStoredCredentials()) {
+          return true;
+        }
+        if (await _reauthenticateFromGoogleSilently()) {
+          return true;
+        }
+        return hasValidSession || hasStoredSession;
       }
 
-      final data = json.decode(response.body) as Map<String, dynamic>;
+      final data = json.decode(body) as Map<String, dynamic>;
       final newAccessToken = data['access_token']?.toString();
       if (newAccessToken == null || newAccessToken.isEmpty) {
-        return isLoggedIn;
+        if (await _reauthenticateFromStoredCredentials()) {
+          return true;
+        }
+        if (await _reauthenticateFromGoogleSilently()) {
+          return true;
+        }
+        return hasValidSession;
       }
 
       final newRefreshToken =
@@ -1129,7 +1314,16 @@ class AuthService {
 
       return true;
     } catch (error) {
-      return isLoggedIn;
+      if (isRetryableNetworkError(error)) {
+        return hasValidSession || hasStoredSession;
+      }
+      if (await _reauthenticateFromStoredCredentials()) {
+        return true;
+      }
+      if (await _reauthenticateFromGoogleSilently()) {
+        return true;
+      }
+      return hasValidSession;
     }
   }
 
@@ -1137,13 +1331,14 @@ class AuthService {
     Uri uri, {
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    await refreshSessionIfNeeded();
+    await _ensureSessionForProtectedApi();
 
     var headers = _authorizedHeaders;
     if (headers == null) {
       return {
         'success': false,
         'error': {'message': 'Not logged in. Please sign in again.'},
+        'session_recovery_required': true,
       };
     }
 
@@ -1151,8 +1346,8 @@ class AuthService {
       var response = await http.get(uri, headers: headers).timeout(timeout);
       var result = _handleResponse(response);
 
-      if (isUnauthorizedResponse(result)) {
-        await recoverStoredSession();
+      if (isAuthFailureResponse(result)) {
+        await _ensureSessionForProtectedApi();
         headers = _authorizedHeaders;
         if (headers != null) {
           response = await http.get(uri, headers: headers).timeout(timeout);
@@ -1160,8 +1355,22 @@ class AuthService {
         }
       }
 
+      if (isHardSessionFailureResponse(result)) {
+        result = {
+          ...result,
+          'session_recovery_required': !hasValidSession,
+        };
+      }
+
       return result;
     } catch (e) {
+      if (isRetryableNetworkError(e)) {
+        return {
+          'success': false,
+          'error': {'message': 'Network error: $e'},
+          'retryable': true,
+        };
+      }
       return {
         'success': false,
         'error': {'message': 'Network error: $e'},
@@ -1174,13 +1383,14 @@ class AuthService {
     required String body,
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    await refreshSessionIfNeeded();
+    await _ensureSessionForProtectedApi();
 
     var headers = _authorizedHeaders;
     if (headers == null) {
       return {
         'success': false,
         'error': {'message': 'Not logged in. Please sign in again.'},
+        'session_recovery_required': true,
       };
     }
 
@@ -1189,8 +1399,8 @@ class AuthService {
           await http.post(uri, headers: headers, body: body).timeout(timeout);
       var result = _handleResponse(response);
 
-      if (isUnauthorizedResponse(result)) {
-        await recoverStoredSession();
+      if (isAuthFailureResponse(result)) {
+        await _ensureSessionForProtectedApi();
         headers = _authorizedHeaders;
         if (headers != null) {
           response =
@@ -1199,8 +1409,22 @@ class AuthService {
         }
       }
 
+      if (isHardSessionFailureResponse(result)) {
+        result = {
+          ...result,
+          'session_recovery_required': !hasValidSession,
+        };
+      }
+
       return result;
     } catch (e) {
+      if (isRetryableNetworkError(e)) {
+        return {
+          'success': false,
+          'error': {'message': 'Network error: $e'},
+          'retryable': true,
+        };
+      }
       return {
         'success': false,
         'error': {'message': 'Network error: $e'},
@@ -1310,6 +1534,54 @@ class AuthService {
     }
   }
 
+  static Future<bool> _reauthenticateFromGoogleSilently() async {
+    try {
+      final account = await _googleSignIn.signInSilently();
+      if (account == null) return false;
+
+      final googleAuth = await account.authentication;
+      final idToken = googleAuth.idToken;
+      if (idToken == null || idToken.isEmpty) return false;
+
+      final result = await _exchangeGoogleIdTokenForSession(
+        idToken: idToken,
+        googleAccessToken: googleAuth.accessToken,
+      );
+      if (result['success'] != true) return false;
+
+      final data = result['data'];
+      if (data is Map<String, dynamic>) {
+        await _persistSessionFromAuthData(data);
+      }
+      return hasValidSession;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>> _exchangeGoogleIdTokenForSession({
+    required String idToken,
+    String? googleAccessToken,
+  }) async {
+    final body = <String, dynamic>{
+      'provider': 'google',
+      'id_token': idToken,
+    };
+    if (googleAccessToken != null && googleAccessToken.isNotEmpty) {
+      body['access_token'] = googleAccessToken;
+    }
+
+    final response = await http
+        .post(
+          Uri.parse(ApiConfig.supabaseGoogleIdTokenUrl),
+          headers: _jsonHeaders,
+          body: json.encode(body),
+        )
+        .timeout(const Duration(seconds: 30));
+
+    return _handleSupabaseAuthResponse(response);
+  }
+
   static Future<Map<String, dynamic>> driverGoogleSignIn({
     VoidCallback? onAccountSelected,
     bool completeRegistration = true,
@@ -1340,24 +1612,11 @@ class AuthService {
         };
       }
 
-      final body = <String, dynamic>{
-        'provider': 'google',
-        'id_token': idToken,
-      };
       final googleAccessToken = googleAuth.accessToken;
-      if (googleAccessToken != null && googleAccessToken.isNotEmpty) {
-        body['access_token'] = googleAccessToken;
-      }
-
-      final response = await http
-          .post(
-            Uri.parse(ApiConfig.supabaseGoogleIdTokenUrl),
-            headers: _jsonHeaders,
-            body: json.encode(body),
-          )
-          .timeout(const Duration(seconds: 30));
-
-      final result = _handleSupabaseAuthResponse(response);
+      final result = await _exchangeGoogleIdTokenForSession(
+        idToken: idToken,
+        googleAccessToken: googleAccessToken,
+      );
       if (result['success'] == true) {
         final data = result['data'];
         if (data is Map<String, dynamic>) {
@@ -1396,6 +1655,7 @@ class AuthService {
           mergedData.addAll(unwrapAuthPayload(oauthData));
         }
 
+        await _persistSessionFromAuthData(mergedData);
         return {'success': true, 'data': mergedData};
       }
       return result;
@@ -1484,6 +1744,7 @@ class AuthService {
           mergedData.addAll(unwrapAuthPayload(oauthData));
         }
 
+        await _persistSessionFromAuthData(mergedData);
         return {'success': true, 'data': mergedData};
       }
       return result;
@@ -1561,6 +1822,20 @@ class AuthService {
       if (parsed is Map<String, dynamic>) return parsed;
     } catch (_) {
       // Ignore malformed token payloads.
+    }
+    return null;
+  }
+
+  static DateTime? _accessTokenExpiryFromJwt() {
+    final token = _accessToken;
+    if (token == null || token.isEmpty) return null;
+    final payload = decodeJwtPayload(token);
+    final exp = payload?['exp'];
+    if (exp is num) {
+      return DateTime.fromMillisecondsSinceEpoch(
+        exp.toInt() * 1000,
+        isUtc: true,
+      );
     }
     return null;
   }
@@ -2001,13 +2276,8 @@ class AuthService {
   }
 
   static Future<void> _ensureSessionForProtectedApi() async {
-    await recoverStoredSession();
-    if (!isLoggedIn) {
-      await refreshSessionIfNeeded(force: true);
-    }
-    if (!isLoggedIn) {
-      await _reauthenticateFromStoredCredentials();
-    }
+    await loadStoredSessionFromDisk();
+    await _tryRecoverExpiredSession();
   }
 
   static bool isDocumentAlreadyUploadedResponse(Map<String, dynamic> response) {
@@ -3917,6 +4187,19 @@ class AuthService {
         'error': {'message': 'Network error: $e'},
       };
     }
+  }
+
+  static bool isRideAlreadyCancelledResponse(Map<String, dynamic> response) {
+    if (response['success'] == true) return false;
+
+    final message = extractErrorMessage(response).toLowerCase();
+    return (message.contains('already') && message.contains('cancel')) ||
+        message.contains('already been cancel') ||
+        message.contains('ride has been cancel') ||
+        message.contains('ride was cancel') ||
+        message.contains('no longer available') ||
+        message.contains('not available') ||
+        message.contains('ride not found');
   }
 
   static Future<Map<String, dynamic>> rideResponse({

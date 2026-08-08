@@ -1,6 +1,9 @@
 class ApiConfig {
   ApiConfig._();
 
+  // Session persistence: in Supabase Dashboard → Authentication → Settings,
+  // set a long refresh-token lifetime (e.g. 30+ days) and ensure driver-login /
+  // OAuth responses return refresh_token + expires_in.
   static const supabaseUrl = 'https://bvazoowmmiymbbhxoggo.supabase.co';
   static const supabaseAnonKey =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2YXpvb3dtbWl5bWJiaHhvZ2dvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2OTQzMjQsImV4cCI6MjA3NTI3MDMyNH0.9vdJHTTnW38CctYwD9GZOvoX_SEu58FLu81mbjQFBdk';

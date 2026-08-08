@@ -2,16 +2,37 @@ import 'package:flutter/material.dart';
 
 import '../../../config/app_fonts.dart';
 import '../../../config/app_responsive.dart';
-import '../../../config/app_strings.dart';
 import '../../../config/app_theme.dart';
+import '../../../features/tutorial/tutorial_screen_helper.dart';
+import '../../../features/tutorial/tutorial_target.dart';
+import '../../../features/tutorial/tutorial_target_registry.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/widgets/animated_success_badge.dart';
 import '../../../shared/widgets/app_strings_scope.dart';
 import '../widgets/auth_widgets.dart';
 import '../../../shared/widgets/responsive_screen_shell.dart';
 
-class DocumentSubmissionSuccessView extends StatelessWidget {
+class DocumentSubmissionSuccessView extends StatefulWidget {
   const DocumentSubmissionSuccessView({super.key});
+
+  @override
+  State<DocumentSubmissionSuccessView> createState() =>
+      _DocumentSubmissionSuccessViewState();
+}
+
+class _DocumentSubmissionSuccessViewState
+    extends State<DocumentSubmissionSuccessView> {
+  final _tutorialRegistry = TutorialTargetRegistry();
+
+  @override
+  void initState() {
+    super.initState();
+    scheduleTutorialForRoute(
+      state: this,
+      route: AppRoutes.documentSubmissionSuccess,
+      registry: _tutorialRegistry,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +62,10 @@ class DocumentSubmissionSuccessView extends StatelessWidget {
             style: r.subtitleStyle(color: theme.mutedText),
           ),
           ResponsiveGap(32),
-          Container(
+          TutorialTarget(
+            registry: _tutorialRegistry,
+            id: 'pending_review',
+            child: Container(
             padding: EdgeInsets.all(r.gap(20)),
             decoration: BoxDecoration(
               color: theme.cardSurface,
@@ -85,11 +109,17 @@ class DocumentSubmissionSuccessView extends StatelessWidget {
                 ],
               ],
             ),
+            ),
           ),
           ResponsiveGap(40),
-          AuthPrimaryButton(
+          TutorialTarget(
+            registry: _tutorialRegistry,
+            id: 'pending_login',
+            child: AuthPrimaryButton(
             label: s.backToLogin,
-            onPressed: () => Navigator.of(context).pushReplacementNamed(AppRoutes.login),
+            onPressed: () =>
+                Navigator.of(context).pushReplacementNamed(AppRoutes.login),
+            ),
           ),
         ],
       ),

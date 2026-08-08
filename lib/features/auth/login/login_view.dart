@@ -10,6 +10,9 @@ import '../../../config/app_theme.dart';
 import '../../../core/providers/app_providers.dart';
 import 'login_controller.dart';
 import '../../../routes/app_routes.dart';
+import '../../../features/tutorial/tutorial_screen_helper.dart';
+import '../../../features/tutorial/tutorial_target.dart';
+import '../../../features/tutorial/tutorial_target_registry.dart';
 import '../../../services/push_notification_service.dart';
 import '../../../utils/driver_auth_navigation.dart';
 import '../widgets/auth_top_toast.dart';
@@ -27,6 +30,7 @@ class LoginView extends ConsumerStatefulWidget {
 
 class _LoginViewState extends ConsumerState<LoginView>
     with AuthValidationToastState {
+  final _tutorialRegistry = TutorialTargetRegistry();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   var _isSocialAuthenticating = false;
@@ -125,6 +129,16 @@ class _LoginViewState extends ConsumerState<LoginView>
   }
 
   @override
+  void initState() {
+    super.initState();
+    scheduleTutorialForRoute(
+      state: this,
+      route: AppRoutes.login,
+      registry: _tutorialRegistry,
+    );
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -196,7 +210,10 @@ class _LoginViewState extends ConsumerState<LoginView>
           ),
           Align(
             alignment: Alignment.centerRight,
-            child: TextButton(
+            child: TutorialTarget(
+              registry: _tutorialRegistry,
+              id: 'login_forgot',
+              child: TextButton(
               onPressed: _goToForgotPassword,
               style: TextButton.styleFrom(
                 foregroundColor: theme.linkAccent,
@@ -209,14 +226,19 @@ class _LoginViewState extends ConsumerState<LoginView>
                   fontWeight: FontWeight.w500,
                 ),
               ),
+              ),
             ),
           ),
           ResponsiveGap(8),
-          AuthPrimaryButton(
+          TutorialTarget(
+            registry: _tutorialRegistry,
+            id: 'login_button',
+            child: AuthPrimaryButton(
             label: controller.isLoading ? s.signingIn : s.login,
             onPressed: controller.isLoading
                 ? null
                 : () => unawaited(_handleLogin()),
+            ),
           ),
           ResponsiveGap(24),
           const AuthOrDivider(),
@@ -235,7 +257,10 @@ class _LoginViewState extends ConsumerState<LoginView>
                 : () => unawaited(_handleGoogleSignIn()),
           ),
           ResponsiveGap(28),
-          RichText(
+          TutorialTarget(
+            registry: _tutorialRegistry,
+            id: 'login_signup_link',
+            child: RichText(
             textAlign: TextAlign.center,
             text: TextSpan(
               style: r.bodyStyle(color: theme.mutedText),
@@ -250,6 +275,7 @@ class _LoginViewState extends ConsumerState<LoginView>
                   ),
                 ),
               ],
+            ),
             ),
           ),
             ],

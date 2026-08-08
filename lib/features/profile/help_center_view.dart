@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../config/app_colors.dart';
@@ -5,6 +7,7 @@ import '../../config/app_strings.dart';
 import '../../config/dashboard_theme.dart';
 import '../../config/app_fonts.dart';
 import '../../config/app_responsive.dart';
+import '../../features/tutorial/app_tutorial_replay.dart';
 import '../../routes/app_routes.dart';
 import 'call_support_modal.dart';
 import '../../shared/widgets/app_strings_scope.dart';
@@ -98,6 +101,14 @@ class _HelpCenterViewState extends State<HelpCenterView> {
                   ),
                 ),
                 ResponsiveGap(12),
+                _SupportActionCard(
+                  r: r,
+                  icon: Icons.play_circle_outline_rounded,
+                  title: s.appWalkthrough,
+                  subtitle: s.appWalkthroughSubtitle,
+                  onTap: () => unawaited(AppTutorialReplay.startFromHelpCenter(context)),
+                ),
+                ResponsiveGap(10),
                 _SupportActionCard(
                   r: r,
                   icon: Icons.phone_rounded,

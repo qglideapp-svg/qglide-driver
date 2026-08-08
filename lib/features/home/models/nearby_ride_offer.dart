@@ -147,6 +147,16 @@ class NearbyRideOffer {
     return normalized == 'requested' || normalized == 'pending';
   }
 
+  static bool isTerminalStatus(String status) {
+    final normalized = status.toLowerCase();
+    return normalized == 'cancelled' ||
+        normalized == 'canceled' ||
+        normalized == 'declined' ||
+        normalized == 'completed';
+  }
+
+  bool get isTerminal => isTerminalStatus(status);
+
   String get pickupTitle => pickupTitleForMinutes(effectivePickupEtaMinutes);
 
   int? get effectivePickupEtaMinutes {

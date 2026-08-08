@@ -32,6 +32,8 @@ import '../ride/widgets/dial_modal.dart';
 import '../../services/ad_placement_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/screen_wake_service.dart';
+import '../../utils/driver_auth_navigation.dart';
+import '../auth/widgets/auth_top_toast.dart';
 import 'widgets/driver_ad_placement_banner.dart';
 import 'widgets/driver_home_ad_modal.dart';
 import 'widgets/ride_dashboard_panel.dart';
@@ -40,6 +42,10 @@ import 'widgets/top_up_checkout_view.dart';
 import 'widgets/top_up_panel.dart';
 import 'widgets/withdrawal_panel.dart';
 import '../ride/call/in_app_call_args.dart';
+import '../tutorial/app_tutorial_replay.dart';
+import '../tutorial/tutorial_screen_helper.dart';
+import '../tutorial/tutorial_target.dart';
+import '../tutorial/tutorial_target_registry.dart';
 
 class HomeView extends ConsumerStatefulWidget {
   const HomeView({super.key, this.showMap = true});
@@ -52,6 +58,7 @@ class HomeView extends ConsumerStatefulWidget {
 
 class _HomeViewState extends ConsumerState<HomeView>
     with WidgetsBindingObserver {
+  final _tutorialRegistry = TutorialTargetRegistry();
   HomeController get _controller => ref.read(homeControllerProvider);
   Timer? _homeAdPollTimer;
   var _isShowingRiderStopModal = false;
@@ -77,18 +84,42 @@ class _HomeViewState extends ConsumerState<HomeView>
         final controller = ref.read(homeControllerProvider);
         controller.processPendingRideNotificationHandlers();
         if (!mounted) return;
+        await AuthService.maintainSession();
+        if (!mounted) return;
         await controller.restoreActiveRideOnLaunch();
         if (!mounted) return;
         await controller.loadTodayStats();
+        if (!mounted) return;
+        if (controller.sessionRecoveryRequired) return;
         if (!mounted) return;
         await Future.wait([
           controller.loadDriverProfile(),
           controller.loadReferDriver(),
         ]);
+        if (!mounted) return;
+        _maybeScheduleHomeTutorial();
       });
 
       _startHomeAdPolling();
     });
+  }
+
+  void _maybeScheduleHomeTutorial() {
+    if (_controller.hasActivePickup ||
+        _controller.hasRideRequest ||
+        _controller.hasActiveTrip) {
+      return;
+    }
+
+    scheduleTutorialForRoute(
+      state: this,
+      route: AppRoutes.home,
+      registry: _tutorialRegistry,
+    );
+    AppTutorialReplay.triggerHomeReplayIfPending(
+      context: context,
+      registry: _tutorialRegistry,
+    );
   }
 
   void _startHomeAdPolling() {
@@ -167,6 +198,17 @@ class _HomeViewState extends ConsumerState<HomeView>
 
   void _onControllerUpdated() {
     if (!mounted) return;
+
+    if (_controller.sessionRecoveryRequired) {
+      final strings = AppStringsScope.of(context);
+      final message = AuthService.sanitizeAuthErrorMessage(
+        _controller.sessionRecoveryMessage ?? strings.sessionExpiredSignInAgain,
+      );
+      _controller.clearSessionRecoveryRequired();
+      AuthTopToast.showError(context, message);
+      unawaited(DriverAuthNavigation.redirectToLogin(context));
+      return;
+    }
 
     final canShowRiderStopModal = _controller.hasActivePickup ||
         _controller.isPendingRideAcceptance;
@@ -307,6 +349,14 @@ class _HomeViewState extends ConsumerState<HomeView>
 
   Future<void> _handleAcceptRide() async {
     final error = await _controller.acceptRideRequest();
+    if (!mounted || error == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error)),
+    );
+  }
+
+  Future<void> _handleIgnoreRide() async {
+    final error = await _controller.declineRideRequest();
     if (!mounted || error == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(error)),
@@ -603,8 +653,12 @@ class _HomeViewState extends ConsumerState<HomeView>
           Positioned(
             right: r.gap(16),
             bottom: locationButtonBottom,
-            child: _LocationButton(
-              onPressed: () => unawaited(_handleCenterOnUser()),
+            child: TutorialTarget(
+              registry: _tutorialRegistry,
+              id: 'home_location',
+              child: _LocationButton(
+                onPressed: () => unawaited(_handleCenterOnUser()),
+              ),
             ),
           ),
           Positioned(
@@ -653,6 +707,7 @@ class _HomeViewState extends ConsumerState<HomeView>
                     isOnline: _controller.isOnline,
                     avatarUrl: _controller.avatarUrl,
                     displayName: _controller.driverFullName,
+                    tutorialRegistry: _tutorialRegistry,
                     onProfileTap: () async {
                       await Navigator.of(context).pushNamed(AppRoutes.profile);
                       if (mounted) {
@@ -714,11 +769,11 @@ class _HomeViewState extends ConsumerState<HomeView>
                       offer: _controller.displayedRideRequestOffer!,
                       isAccepting: _controller.isAcceptingRide,
                       isDeclining: _controller.isDecliningRide,
-                      onIgnore: () => unawaited(_controller.declineRideRequest()),
+                      onIgnore: () => unawaited(_handleIgnoreRide()),
                       onAccept: () => unawaited(_handleAcceptRide()),
                       onExpired: () {
                         if (_controller.isAcceptingRide) return;
-                        unawaited(_controller.declineRideRequest());
+                        unawaited(_handleIgnoreRide());
                       },
                     )
                   : hasActiveTrip
@@ -766,6 +821,7 @@ class _HomeViewState extends ConsumerState<HomeView>
                                 onTopUp: _handleTopUp,
                                 onWithdraw: _handleWithdrawal,
                                 onRefer: () => unawaited(_handleRefer()),
+                                tutorialRegistry: _tutorialRegistry,
                               ),
                             ),
     );
@@ -777,6 +833,7 @@ class _DashboardHeader extends StatelessWidget {
     required this.isOnline,
     required this.onProfileTap,
     required this.onNotificationTap,
+    required this.tutorialRegistry,
     this.avatarUrl,
     this.displayName,
   });
@@ -786,6 +843,7 @@ class _DashboardHeader extends StatelessWidget {
   final String? displayName;
   final VoidCallback onProfileTap;
   final VoidCallback onNotificationTap;
+  final TutorialTargetRegistry tutorialRegistry;
 
   @override
   Widget build(BuildContext context) {
@@ -796,7 +854,10 @@ class _DashboardHeader extends StatelessWidget {
 
     return Row(
       children: [
-        Material(
+        TutorialTarget(
+          registry: tutorialRegistry,
+          id: 'home_profile',
+          child: Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: onProfileTap,
@@ -817,6 +878,7 @@ class _DashboardHeader extends StatelessWidget {
               ),
             ),
           ),
+        ),
         ),
         Expanded(
           child: Center(
@@ -864,7 +926,10 @@ class _DashboardHeader extends StatelessWidget {
             ),
           ),
         ),
-        Material(
+        TutorialTarget(
+          registry: tutorialRegistry,
+          id: 'home_notifications',
+          child: Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: onNotificationTap,
@@ -899,6 +964,7 @@ class _DashboardHeader extends StatelessWidget {
               ),
             ),
           ),
+        ),
         ),
       ],
     );
@@ -1042,6 +1108,7 @@ class _DashboardPanel extends StatelessWidget {
     required this.onTopUp,
     required this.onWithdraw,
     required this.onRefer,
+    required this.tutorialRegistry,
   });
 
   final HomeController controller;
@@ -1057,6 +1124,7 @@ class _DashboardPanel extends StatelessWidget {
     required String accountNumber,
   }) onWithdraw;
   final VoidCallback onRefer;
+  final TutorialTargetRegistry tutorialRegistry;
 
   @override
   Widget build(BuildContext context) {
@@ -1121,6 +1189,7 @@ class _DashboardPanel extends StatelessWidget {
                             : _DashboardTabs(
                                 selectedTab: controller.selectedTab,
                                 onTabSelected: controller.selectTab,
+                                tutorialRegistry: tutorialRegistry,
                               ),
                       ),
                       SizedBox(height: r.gap(14)),
@@ -1191,16 +1260,21 @@ class _DashboardPanel extends StatelessWidget {
                       _DashboardTabs(
                         selectedTab: controller.selectedTab,
                         onTabSelected: controller.selectTab,
+                        tutorialRegistry: tutorialRegistry,
                       ),
                       SizedBox(height: r.gap(14)),
                       const DriverAdPlacementBanner(),
                       SizedBox(height: r.gap(20)),
                       controller.isLoadingTodayStats
                           ? const _LazyStatsBar()
-                          : _StatsBar(
+                          : TutorialTarget(
+                              registry: tutorialRegistry,
+                              id: 'home_dashboard',
+                              child: _StatsBar(
                               earnings: controller.todayEarningsDisplay,
                               timeOnline: controller.todayTimeOnlineDisplay,
                               totalRides: controller.todayRidesDisplay,
+                              ),
                             ),
                     ],
                   ),
@@ -1211,13 +1285,17 @@ class _DashboardPanel extends StatelessWidget {
             top: r.goOnlineNotchTop(),
             left: 0,
             right: 0,
-            child: Center(
-              child: SizedBox(
+              child: Center(
+                child: SizedBox(
                 width: r.w(136).clamp(124.0, 156.0),
-                child: _GoOnlineButton(
+                child: TutorialTarget(
+                  registry: tutorialRegistry,
+                  id: 'home_go_online',
+                  child: _GoOnlineButton(
                   isOnline: isOnline,
                   isLoading: isUpdatingOnlineStatus,
                   onPressed: onGoOnlinePressed,
+                  ),
                 ),
               ),
             ),
@@ -1290,10 +1368,12 @@ class _DashboardTabs extends StatelessWidget {
   const _DashboardTabs({
     required this.selectedTab,
     required this.onTabSelected,
+    this.tutorialRegistry,
   });
 
   final DashboardTab selectedTab;
   final ValueChanged<DashboardTab> onTabSelected;
+  final TutorialTargetRegistry? tutorialRegistry;
 
   @override
   Widget build(BuildContext context) {
@@ -1311,11 +1391,15 @@ class _DashboardTabs extends StatelessWidget {
             isSelected: selectedTab == DashboardTab.driver,
             onTap: () => onTabSelected(DashboardTab.driver),
           ),
-          _DashboardTabItem(
+          TutorialTarget(
+            registry: tutorialRegistry ?? TutorialTargetRegistry(),
+            id: 'home_earnings_tab',
+            child: _DashboardTabItem(
             label: s.earnings,
             iconAsset: AppConstants.earningsTabIconAsset,
             isSelected: selectedTab == DashboardTab.earnings,
             onTap: () => onTabSelected(DashboardTab.earnings),
+            ),
           ),
         ],
       ),

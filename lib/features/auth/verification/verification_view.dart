@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../config/app_fonts.dart';
 import '../../../config/app_responsive.dart';
-import '../../../config/app_strings.dart';
 import '../../../config/app_theme.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../routes/app_routes.dart';
@@ -51,12 +50,17 @@ class _VerificationViewState extends ConsumerState<VerificationView> {
     final controller = _controller!;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       controller.onAutoVerifyComplete = _handleAutoVerifyResult;
+      controller.addListener(_onControllerUpdated);
       for (final node in controller.focusNodes) {
         node.addListener(_onFocusChange);
       }
       controller.focusNodes.first.requestFocus();
       unawaited(_sendInitialCode());
     });
+  }
+
+  void _onControllerUpdated() {
+    if (mounted) setState(() {});
   }
 
   VerificationController get _activeController => _controller!;
@@ -70,6 +74,13 @@ class _VerificationViewState extends ConsumerState<VerificationView> {
     final result = await _activeController.sendCode();
     if (!mounted) return;
     await _handleSendCodeResponse(result);
+  }
+
+  Future<void> _tryAutoConfirm() async {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+    if (!controller.hasCompleteOtp || !controller.canConfirm) return;
+    await _handleConfirm();
   }
 
   Future<void> _handleResend() async {
@@ -160,6 +171,7 @@ class _VerificationViewState extends ConsumerState<VerificationView> {
     final controller = _controller;
     if (controller != null) {
       controller.onAutoVerifyComplete = null;
+      controller.removeListener(_onControllerUpdated);
       for (final node in controller.focusNodes) {
         node.removeListener(_onFocusChange);
       }
@@ -242,7 +254,31 @@ class _VerificationViewState extends ConsumerState<VerificationView> {
             ),
           ],
           ResponsiveGap(controller.codeReadyForEntry ? 28 : 40),
-          LayoutBuilder(
+          Opacity(
+            opacity: 0,
+            child: SizedBox(
+              height: 0,
+              width: 0,
+              child: TextField(
+                keyboardType: TextInputType.number,
+                autofillHints: const [AutofillHints.oneTimeCode],
+                maxLength: 6,
+                decoration: const InputDecoration(
+                  counterText: '',
+                  border: InputBorder.none,
+                ),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (value) {
+                  if (value.length < 6) return;
+                  controller.fillOtp(value);
+                  setState(() {});
+                  unawaited(_tryAutoConfirm());
+                },
+              ),
+            ),
+          ),
+          AutofillGroup(
+            child: LayoutBuilder(
             builder: (context, constraints) {
               final horizontalPadding = r.contentPadding.horizontal / 2;
               final boxSize = r.otpBoxSize(horizontalPadding);
@@ -261,6 +297,7 @@ class _VerificationViewState extends ConsumerState<VerificationView> {
                 ),
               );
             },
+            ),
           ),
           ResponsiveGap(28),
           TextButton(
@@ -297,7 +334,7 @@ class _VerificationViewState extends ConsumerState<VerificationView> {
                 ? s.verifyingAutomatically
                 : controller.isConfirming
                     ? s.verifying
-                    : controller.isSendingCode || controller.isWaitingForCode
+                    : controller.isSendingCode
                         ? s.sendingCode
                         : s.confirm,
             onPressed: controller.canConfirm
@@ -362,7 +399,8 @@ class _VerificationViewState extends ConsumerState<VerificationView> {
           } else {
             controller.onDigitChanged(index, value);
           }
-          if (controller.otpCode.length == 6 && controller.canConfirm) {
+          setState(() {});
+          if (controller.hasCompleteOtp && controller.canConfirm) {
             unawaited(_handleConfirm());
           }
         },

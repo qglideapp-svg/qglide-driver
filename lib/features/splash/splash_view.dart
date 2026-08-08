@@ -60,12 +60,13 @@ class _SplashViewState extends ConsumerState<SplashView> {
   }
 
   Future<DriverNavigationTarget> _resolveNavigationTarget() async {
-    await AuthService.ensureSessionRestored();
+    await AuthService.loadStoredSessionFromDisk();
+    await AuthService.maintainSession();
     try {
       return await DriverAuthNavigation.resolveSplashTarget().timeout(
         const Duration(seconds: 8),
         onTimeout: () {
-          if (AuthService.isLoggedIn || AuthService.hasStoredSession) {
+          if (AuthService.hasValidSession) {
             return DriverNavigationTarget(route: AppRoutes.home);
           }
           return DriverNavigationTarget(
@@ -74,7 +75,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
         },
       );
     } catch (_) {
-      if (AuthService.isLoggedIn || AuthService.hasStoredSession) {
+      if (AuthService.hasValidSession) {
         return DriverNavigationTarget(route: AppRoutes.home);
       }
       return DriverNavigationTarget(
@@ -94,8 +95,8 @@ class _SplashViewState extends ConsumerState<SplashView> {
   Future<void> _navigateAfterSplash() async {
     DriverNavigationTarget target;
     if (PushNotificationService.shouldOpenHomeForRideLaunch &&
-        (AuthService.isLoggedIn || AuthService.hasStoredSession)) {
-      await AuthService.ensureSessionRestored();
+        AuthService.hasValidSession) {
+      await AuthService.maintainSession();
       target = const DriverNavigationTarget(route: AppRoutes.home);
     } else {
       try {
@@ -107,7 +108,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
       }
     }
 
-    if (AuthService.isLoggedIn) {
+    if (AuthService.hasValidSession) {
       unawaited(PushNotificationService.registerTokenIfLoggedIn());
     }
 

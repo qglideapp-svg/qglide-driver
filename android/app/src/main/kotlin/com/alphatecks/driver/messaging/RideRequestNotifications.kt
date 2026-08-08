@@ -118,7 +118,7 @@ object RideRequestNotifications {
         action: String,
         requestCode: Int,
     ): PendingIntent {
-        val intent = Intent(context, RideRequestActionReceiver::class.java).apply {
+        val intent = Intent(context, RideRequestActionActivity::class.java).apply {
             this.action = action
             putExtra(EXTRA_RIDE_ID, payload.rideId)
             putExtra(EXTRA_PICKUP, payload.pickupAddress)
@@ -127,7 +127,7 @@ object RideRequestNotifications {
             putExtra(EXTRA_TITLE, payload.title)
             putExtra(EXTRA_BODY, payload.body)
         }
-        return PendingIntent.getBroadcast(
+        return PendingIntent.getActivity(
             context,
             requestCode,
             intent,
@@ -151,6 +151,10 @@ object RideRequestNotifications {
         ).apply {
             description = "Alerts when a new ride request is available"
             enableVibration(true)
+            setShowBadge(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setBypassDnd(true)
+            }
             setSound(
                 soundUri,
                 AudioAttributes.Builder()

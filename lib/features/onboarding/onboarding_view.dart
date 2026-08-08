@@ -9,6 +9,7 @@ import '../../config/app_responsive.dart';
 import '../../shared/widgets/app_strings_scope.dart';
 import '../../core/providers/app_providers.dart';
 import '../../services/auth_service.dart';
+import '../../services/app_tutorial_service.dart';
 import 'onboarding_controller.dart';
 import 'onboarding_page_model.dart';
 import '../../routes/app_routes.dart';
@@ -27,6 +28,7 @@ class _OnboardingViewState extends ConsumerState<OnboardingView> {
 
   Future<void> _finishOnboarding() async {
     await AuthService.markOnboardingCompleted();
+    await AppTutorialService.activateJourney();
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed(AppRoutes.signup);
   }

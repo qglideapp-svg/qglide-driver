@@ -68,7 +68,7 @@
         <receiver
             android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
             android:exported="false" />
-        <!-- Native ride-request notification actions (Accept / Cancel). -->
+        <!-- Legacy fallback for notification actions created before trampoline activity. -->
         <receiver
             android:name=".messaging.RideRequestActionReceiver"
             android:exported="false">
@@ -77,6 +77,16 @@
                 <action android:name="ride_ignore" />
             </intent-filter>
         </receiver>
+        <activity
+            android:name=".messaging.RideRequestActionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:turnScreenOn="true" />
         <!-- Intercept ride-request FCM before Flutter and show native action buttons. -->
         <receiver
             android:name=".messaging.DriverRideRequestReceiver"

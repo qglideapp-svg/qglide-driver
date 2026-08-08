@@ -28,6 +28,10 @@ import UserNotifications
     }
     Messaging.messaging().delegate = self
 
+    DispatchQueue.main.async {
+      application.registerForRemoteNotifications()
+    }
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

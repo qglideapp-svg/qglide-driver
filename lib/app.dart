@@ -43,7 +43,10 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       case AppLifecycleState.resumed:
         AdPlacementCache.instance.start();
         unawaited(RideRequestSoundService.stop());
-        unawaited(AuthService.maintainSession());
+        unawaited(() async {
+          await AuthService.loadStoredSessionFromDisk();
+          await AuthService.maintainSession();
+        }());
         unawaited(PushNotificationService.registerTokenIfLoggedIn());
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:

@@ -91,7 +91,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     }
 
     try {
-      await AuthService.ensureSessionRestored();
+      await AuthService.maintainSession();
       _logPhase('session_restored');
     } catch (error) {
       _logPhase('session_restore_failed: $error');
@@ -117,7 +117,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
   Future<void> _handleNotificationColdStart() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
     if (!PushNotificationService.shouldOpenHomeForRideLaunch) return;
-    if (!AuthService.isLoggedIn && !AuthService.hasStoredSession) return;
+    if (!AuthService.hasValidSession) return;
 
     final nav = appNavigatorKey.currentState;
     if (nav == null) return;
@@ -125,7 +125,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     _logPhase('notification_cold_start_redirect');
     StartupNavigationTracker.markNavigated();
     await nav.pushReplacementNamed(AppRoutes.home);
-    if (AuthService.isLoggedIn) {
+    if (AuthService.hasValidSession) {
       unawaited(PushNotificationService.registerTokenIfLoggedIn());
     }
     _logPhase('navigated');
@@ -137,7 +137,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     _logPhase('watchdog_force_navigation');
 
     final DriverNavigationTarget target;
-    if (AuthService.isLoggedIn || AuthService.hasStoredSession) {
+    if (AuthService.hasValidSession) {
       target = const DriverNavigationTarget(route: AppRoutes.home);
     } else {
       target = DriverNavigationTarget(

@@ -6,6 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_service.dart';
+import 'push_notification_service.dart';
 
 class PhoneVerificationException implements Exception {
   PhoneVerificationException(this.message, {this.code});
@@ -284,7 +285,9 @@ class PhoneVerificationService {
   static Future<void> _ensureIosApnsReadyForPhoneAuth() async {
     if (!Platform.isIOS) return;
 
-    const maxAttempts = 24;
+    await PushNotificationService.prepareIosForPhoneAuth();
+
+    const maxAttempts = 40;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final token = await FirebaseMessaging.instance.getAPNSToken();
       if (token != null && token.isNotEmpty) {
@@ -419,6 +422,11 @@ class PhoneVerificationService {
     final immediateResult = immediateCompleter.future.timeout(
       const Duration(seconds: 65),
       onTimeout: () {
+        if (codeSent &&
+            _verificationId != null &&
+            _verificationId!.isNotEmpty) {
+          return _codeSentResponse(phone);
+        }
         throw PhoneVerificationException(
           codeSent
               ? 'Verification is taking longer than expected. Try resending the code.'

@@ -7,6 +7,7 @@ import 'package:image_picker_platform_interface/image_picker_platform_interface.
 
 import 'app_bootstrap.dart';
 import 'services/app_locale_service.dart';
+import 'services/app_tutorial_service.dart';
 import 'services/auth_service.dart';
 
 Future<void> main() async {
@@ -23,6 +24,8 @@ Future<void> main() async {
 
   await AppLocaleService.instance.load();
   await AuthService.loadStoredSessionFromDisk();
+  await AuthService.maintainSession();
+  await AppTutorialService.loadFromDisk();
 
   runApp(
     const ProviderScope(

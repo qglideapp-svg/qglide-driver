@@ -67,7 +67,7 @@ class VerificationController extends ChangeNotifier {
       !_isSendingCode &&
       !_isConfirming &&
       !_isAutoVerifying &&
-      !_isWaitingForCode &&
+      hasCompleteOtp &&
       PhoneVerificationService.canSubmitManualCode;
   bool get isBusy =>
       _isSendingCode || _isConfirming || _isAutoVerifying || _isWaitingForCode;
@@ -151,6 +151,10 @@ class VerificationController extends ChangeNotifier {
       };
     } finally {
       _isSendingCode = false;
+      if (PhoneVerificationService.canSubmitManualCode) {
+        _codeReadyForEntry = true;
+        _isWaitingForCode = false;
+      }
       notifyListeners();
     }
   }
@@ -316,13 +320,7 @@ class VerificationController extends ChangeNotifier {
 
   void onDigitChanged(int index, String value) {
     if (value.length > 1) {
-      final digits = value.replaceAll(RegExp(r'\D'), '');
-      for (var i = 0; i < 6; i++) {
-        digitControllers[i].text = i < digits.length ? digits[i] : '';
-      }
-      final nextIndex = digits.length.clamp(0, 5);
-      focusNodes[nextIndex].requestFocus();
-      notifyListeners();
+      fillOtp(value);
       return;
     }
 
@@ -331,6 +329,19 @@ class VerificationController extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  void fillOtp(String rawDigits) {
+    final digits = rawDigits.replaceAll(RegExp(r'\D'), '');
+    for (var i = 0; i < digitControllers.length; i++) {
+      digitControllers[i].text = i < digits.length ? digits[i] : '';
+    }
+    if (digits.isNotEmpty) {
+      focusNodes[digits.length.clamp(0, 5)].requestFocus();
+    }
+    notifyListeners();
+  }
+
+  bool get hasCompleteOtp => otpCode.length == 6;
 
   void onDigitDeleted(int index) {
     if (digitControllers[index].text.isEmpty && index > 0) {

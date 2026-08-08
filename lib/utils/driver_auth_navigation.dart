@@ -13,18 +13,15 @@ class DriverAuthNavigation {
 
   static bool isSessionExpiredMessage(String? message) {
     if (message == null || message.isEmpty) return false;
-    final lower = message.toLowerCase();
-    return lower.contains('not logged in') ||
-        lower.contains('sign in again') ||
-        lower.contains('session expired');
+    return AuthService.isAuthErrorMessage(message);
   }
 
   /// Clears invalid tokens and sends the user to login (full stack reset).
   /// Only navigates away when there is no persisted session to restore.
   static Future<void> redirectToLogin(BuildContext context) async {
-    await AuthService.recoverStoredSession();
+    await AuthService.maintainSession();
     if (!context.mounted) return;
-    if (AuthService.isLoggedIn || AuthService.hasStoredSession) {
+    if (AuthService.hasValidSession) {
       return;
     }
     await Navigator.of(context).pushNamedAndRemoveUntil(
@@ -35,9 +32,9 @@ class DriverAuthNavigation {
 
   /// Restores session when possible; only redirects to login without stored credentials.
   static Future<bool> ensureSessionOrRedirectToLogin(BuildContext context) async {
-    final restored = await AuthService.recoverStoredSession();
+    final restored = await AuthService.maintainSession();
     if (restored || !context.mounted) return restored;
-    if (AuthService.hasStoredSession) return true;
+    if (AuthService.hasValidSession) return true;
     await Navigator.of(context).pushNamedAndRemoveUntil(
       AppRoutes.login,
       (_) => false,
@@ -115,19 +112,20 @@ class DriverAuthNavigation {
 
   /// Splash: restore session, ask backend onboarding status, resume correct screen.
   static Future<DriverNavigationTarget> resolveSplashTarget() async {
-    await AuthService.ensureSessionRestored();
+    await AuthService.loadStoredSessionFromDisk();
+    await AuthService.maintainSession();
 
-    if (AuthService.isLoggedIn) {
+    if (AuthService.hasValidSession) {
       await AuthService.clearPendingPhoneContext();
     }
 
     final phoneVerifiedResume =
         await AuthService.hasCompletedPhoneVerificationResume();
     if (phoneVerifiedResume) {
-      if (!AuthService.isLoggedIn) {
-        await AuthService.recoverStoredSession();
+      if (!AuthService.hasValidSession) {
+        await AuthService.maintainSession();
       }
-      if (AuthService.isLoggedIn || AuthService.hasStoredSession) {
+      if (AuthService.hasValidSession) {
         final backendTarget = await _targetFromBackendRoute();
         if (backendTarget != null) {
           return backendTarget;
@@ -137,8 +135,8 @@ class DriverAuthNavigation {
       return DriverNavigationTarget(route: AppRoutes.login);
     }
 
-    if (!AuthService.isLoggedIn) {
-      await AuthService.recoverStoredSession();
+    if (!AuthService.hasValidSession) {
+      await AuthService.maintainSession();
     }
 
     final backendTarget = await _targetFromBackendRoute();
@@ -146,16 +144,16 @@ class DriverAuthNavigation {
       return backendTarget;
     }
 
-    if (!AuthService.isLoggedIn &&
+    if (!AuthService.hasValidSession &&
         await AuthService.hasPendingSignupCredentials()) {
-      await AuthService.recoverStoredSession();
+      await AuthService.maintainSession();
       final retryTarget = await _targetFromBackendRoute();
       if (retryTarget != null) {
         return retryTarget;
       }
     }
 
-    if (!AuthService.isLoggedIn) {
+    if (!AuthService.hasValidSession) {
       final pending = await AuthService.loadPendingVerificationContext();
       if (pending != null && pending.hasValidPhone) {
         return DriverNavigationTarget(
@@ -169,21 +167,23 @@ class DriverAuthNavigation {
     if (storedRoute != null &&
         storedRoute != DriverAccessRoute.login &&
         storedRoute != DriverAccessRoute.phoneVerification) {
-      if (!AuthService.isLoggedIn) {
+      if (!AuthService.hasValidSession) {
         await AuthService.bootstrapPendingSignupSession();
       }
-      return targetForAccessRoute(storedRoute);
+      if (AuthService.hasValidSession ||
+          await AuthService.bootstrapPendingSignupSession()) {
+        return targetForAccessRoute(storedRoute);
+      }
     }
 
     final hasResumeData = phoneVerifiedResume ||
         storedRoute != null ||
         await AuthService.hasPendingSignupCredentials();
-    if (!AuthService.isLoggedIn && !hasResumeData) {
+    if (!AuthService.hasValidSession && !hasResumeData) {
       await AuthService.clearStaleDriverProgress();
     }
 
-    if (AuthService.isLoggedIn || AuthService.hasStoredSession) {
-      await AuthService.recoverStoredSession();
+    if (AuthService.hasValidSession) {
       final storedRoute = await DriverStatusService.resolveStoredAccessRoute();
       if (storedRoute != null &&
           storedRoute != DriverAccessRoute.login &&

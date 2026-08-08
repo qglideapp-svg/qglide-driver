@@ -10,6 +10,9 @@ import '../../../config/app_theme.dart';
 import '../../../core/providers/app_providers.dart';
 import 'document_upload_controller.dart';
 import 'driver_document_type.dart';
+import '../../../features/tutorial/tutorial_screen_helper.dart';
+import '../../../features/tutorial/tutorial_target.dart';
+import '../../../features/tutorial/tutorial_target_registry.dart';
 import '../../../routes/app_routes.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/driver_status_service.dart';
@@ -29,8 +32,10 @@ class DocumentUploadView extends ConsumerStatefulWidget {
 }
 
 class _DocumentUploadViewState extends ConsumerState<DocumentUploadView> {
+  final _tutorialRegistry = TutorialTargetRegistry();
   var _currentStep = 1;
   var _sessionReady = false;
+  var _tutorialScheduled = false;
 
   static const _totalSteps = DriverDocumentType.contentStepCount + 1;
   static const _contentSteps = DriverDocumentType.contentStepCount;
@@ -55,6 +60,14 @@ class _DocumentUploadViewState extends ConsumerState<DocumentUploadView> {
         _sessionReady = true;
         _currentStep = _controller.firstIncompleteStep;
       });
+      if (!_tutorialScheduled) {
+        _tutorialScheduled = true;
+        scheduleTutorialForRoute(
+          state: this,
+          route: AppRoutes.documentUpload,
+          registry: _tutorialRegistry,
+        );
+      }
     }
   }
 
@@ -225,7 +238,11 @@ class _DocumentUploadViewState extends ConsumerState<DocumentUploadView> {
             style: r.subtitleStyle(color: theme.mutedText),
           ),
           ResponsiveGap(24),
-          _ProgressBar(currentStep: _progressStep, totalSteps: _totalSteps),
+          TutorialTarget(
+            registry: _tutorialRegistry,
+            id: 'documents_progress',
+            child: _ProgressBar(currentStep: _progressStep, totalSteps: _totalSteps),
+          ),
           ResponsiveGap(28),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
@@ -250,7 +267,10 @@ class _DocumentUploadViewState extends ConsumerState<DocumentUploadView> {
               children: [
                 for (var i = 0; i < documents.length; i++) ...[
                   if (i > 0) ResponsiveGap(16),
-                  _DocumentCard(
+                  TutorialTarget(
+                    registry: _tutorialRegistry,
+                    id: i == 0 ? 'documents_card' : 'documents_card_extra_$i',
+                    child: _DocumentCard(
                     icon: documents[i].icon,
                     title: documents[i].title,
                     subtitle: documents[i].subtitle,
@@ -273,6 +293,7 @@ class _DocumentUploadViewState extends ConsumerState<DocumentUploadView> {
                               _handleDelete(documents[i].documentType),
                             )
                         : null,
+                    ),
                   ),
                 ],
               ],
@@ -286,9 +307,13 @@ class _DocumentUploadViewState extends ConsumerState<DocumentUploadView> {
             ),
             ResponsiveGap(12),
           ],
-          AuthPrimaryButton(
+          TutorialTarget(
+            registry: _tutorialRegistry,
+            id: 'documents_next',
+            child: AuthPrimaryButton(
             label: _currentStep == _contentSteps ? s.submit : s.next,
             onPressed: isBusy ? null : () => unawaited(_handleNext(s)),
+            ),
           ),
           ResponsiveGap(24),
           _InfoFooter(message: s.documentUploadInfoFooter),

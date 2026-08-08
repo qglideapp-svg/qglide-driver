@@ -1292,6 +1292,170 @@ class AppStrings {
   String get profileUpdatedSuccessfully =>
       _t('Profile updated successfully.', 'تم تحديث الملف الشخصي بنجاح.');
 
+  // ── In-app tutorial ─────────────────────────────────────────────────────────
+  String tutorialStepCounter(int current, int total) => _t(
+        'Step $current of $total',
+        'الخطوة ${_localizeDigits('$current')} من ${_localizeDigits('$total')}',
+      );
+  String get tutorialSkipTour => _t('Skip tour', 'تخطي الجولة');
+  String get tutorialGotIt => _t('Got it', 'فهمت');
+  String get appWalkthrough => _t('App walkthrough', 'جولة في التطبيق');
+  String get appWalkthroughSubtitle => _t(
+        'Replay the guided tour of the app',
+        'إعادة الجولة الإرشادية في التطبيق',
+      );
+
+  String get tutorialSignupFormTitle =>
+      _t('Your details', 'بياناتك');
+  String get tutorialSignupFormBody => _t(
+        'Enter your name, email, phone number, and password to create your driver account.',
+        'أدخل اسمك وبريدك الإلكتروني ورقم هاتفك وكلمة المرور لإنشاء حساب السائق.',
+      );
+  String get tutorialSignupCreateTitle =>
+      _t('Create account', 'إنشاء حساب');
+  String get tutorialSignupCreateBody => _t(
+        'Tap here when your details are ready. We will verify your phone number next.',
+        'اضغط هنا عندما تكون بياناتك جاهزة. سنتحقق من رقم هاتفك في الخطوة التالية.',
+      );
+  String get tutorialSignupSocialTitle =>
+      _t('Quick sign up', 'تسجيل سريع');
+  String get tutorialSignupSocialBody => _t(
+        'You can also sign up with Google or Apple, then complete any missing details.',
+        'يمكنك أيضاً التسجيل عبر Google أو Apple، ثم إكمال أي بيانات ناقصة.',
+      );
+  String get tutorialSignupLoginLinkTitle =>
+      _t('Already registered?', 'مسجل مسبقاً؟');
+  String get tutorialSignupLoginLinkBody => _t(
+        'If you already have a driver account, tap Login to sign in instead.',
+        'إذا كان لديك حساب سائق بالفعل، اضغط تسجيل الدخول.',
+      );
+
+  String get tutorialVerificationOtpTitle =>
+      _t('Enter the code', 'أدخل الرمز');
+  String get tutorialVerificationOtpBody => _t(
+        'Type the 6-digit code sent to your phone. It may fill in automatically from SMS.',
+        'أدخل الرمز المكون من 6 أرقام المرسل إلى هاتفك. قد يُملأ تلقائياً من الرسالة.',
+      );
+  String get tutorialVerificationResendTitle =>
+      _t('Resend code', 'إعادة إرسال الرمز');
+  String get tutorialVerificationResendBody => _t(
+        'Did not receive the code? Tap Resend Code after the timer finishes.',
+        'لم تستلم الرمز؟ اضغط إعادة إرسال الرمز بعد انتهاء المؤقت.',
+      );
+  String get tutorialVerificationConfirmTitle =>
+      _t('Confirm', 'تأكيد');
+  String get tutorialVerificationConfirmBody => _t(
+        'Tap Confirm once all six digits are entered to verify your phone.',
+        'اضغط تأكيد بعد إدخال الأرقام الستة للتحقق من هاتفك.',
+      );
+
+  String get tutorialDocumentsProgressTitle =>
+      _t('Upload progress', 'تقدم الرفع');
+  String get tutorialDocumentsProgressBody => _t(
+        'This bar shows which document step you are on. There are three steps in total.',
+        'يعرض هذا الشريط خطوة المستندات الحالية. هناك ثلاث خطوات في المجموع.',
+      );
+  String get tutorialDocumentsCardTitle =>
+      _t('Upload documents', 'رفع المستندات');
+  String get tutorialDocumentsCardBody => _t(
+        'Tap Upload on each card to add photos of your ID, license, and vehicle documents.',
+        'اضغط رفع في كل بطاقة لإضافة صور الهوية والرخصة ومستندات المركبة.',
+      );
+  String get tutorialDocumentsNextTitle =>
+      _t('Continue', 'متابعة');
+  String get tutorialDocumentsNextBody => _t(
+        'When every document on this step is uploaded, tap Next or Submit to continue.',
+        'عند رفع جميع مستندات هذه الخطوة، اضغط التالي أو إرسال للمتابعة.',
+      );
+
+  String get tutorialVehiclePhotoTitle =>
+      _t('Vehicle photo', 'صورة المركبة');
+  String get tutorialVehiclePhotoBody => _t(
+        'Your vehicle photo helps riders recognize your car at pickup.',
+        'تساعد صورة مركبتك الركاب على التعرف على سيارتك عند الاستلام.',
+      );
+  String get tutorialVehicleFieldsTitle =>
+      _t('Vehicle details', 'تفاصيل المركبة');
+  String get tutorialVehicleFieldsBody => _t(
+        'Enter your car make, model, year, colour, and license plate accurately.',
+        'أدخل ماركة وسنة ولون ورقم لوحة مركبتك بدقة.',
+      );
+  String get tutorialVehicleSubmitTitle =>
+      _t('Submit vehicle', 'إرسال المركبة');
+  String get tutorialVehicleSubmitBody => _t(
+        'Tap Submit to send your vehicle details for review.',
+        'اضغط إرسال لإرسال تفاصيل مركبتك للمراجعة.',
+      );
+
+  String get tutorialPendingReviewTitle =>
+      _t('Under review', 'قيد المراجعة');
+  String get tutorialPendingReviewBody => _t(
+        'Your documents are being reviewed. You will be notified once approved.',
+        'مستنداتك قيد المراجعة. سيتم إشعارك عند الموافقة.',
+      );
+  String get tutorialPendingLoginTitle =>
+      _t('Back to login', 'العودة لتسجيل الدخول');
+  String get tutorialPendingLoginBody => _t(
+        'After submission, sign in here once your account is approved.',
+        'بعد الإرسال، سجّل الدخول هنا عندما يتم اعتماد حسابك.',
+      );
+
+  String get tutorialLoginButtonTitle =>
+      _t('Sign in', 'تسجيل الدخول');
+  String get tutorialLoginButtonBody => _t(
+        'Use the email and password you registered with to access your account.',
+        'استخدم البريد الإلكتروني وكلمة المرور اللذين سجلت بهما للوصول إلى حسابك.',
+      );
+  String get tutorialLoginForgotTitle =>
+      _t('Forgot password', 'نسيت كلمة المرور');
+  String get tutorialLoginForgotBody => _t(
+        'Tap here if you need to reset your password.',
+        'اضغط هنا إذا كنت بحاجة إلى إعادة تعيين كلمة المرور.',
+      );
+  String get tutorialLoginSignupTitle =>
+      _t('New driver?', 'سائق جديد؟');
+  String get tutorialLoginSignupBody => _t(
+        'Tap Sign Up to create a new driver account.',
+        'اضغط إنشاء حساب لإنشاء حساب سائق جديد.',
+      );
+
+  String get tutorialHomeProfileTitle =>
+      _t('Your profile', 'ملفك الشخصي');
+  String get tutorialHomeProfileBody => _t(
+        'Open your profile to update personal info, vehicle details, and settings.',
+        'افتح ملفك الشخصي لتحديث معلوماتك وتفاصيل المركبة والإعدادات.',
+      );
+  String get tutorialHomeNotificationsTitle =>
+      _t('Notifications', 'الإشعارات');
+  String get tutorialHomeNotificationsBody => _t(
+        'Check alerts about rides, earnings, and account updates here.',
+        'اطلع هنا على تنبيهات الرحلات والأرباح وتحديثات الحساب.',
+      );
+  String get tutorialHomeGoOnlineTitle =>
+      _t('Go online', 'الاتصال');
+  String get tutorialHomeGoOnlineBody => _t(
+        'Tap Go Online when you are ready to receive ride requests. Tap Go Offline when you are done.',
+        'اضغط الاتصال عندما تكون جاهزاً لاستقبال طلبات الرحلات. اضغط قطع الاتصال عند الانتهاء.',
+      );
+  String get tutorialHomeEarningsTitle =>
+      _t('Earnings tab', 'تبويب الأرباح');
+  String get tutorialHomeEarningsBody => _t(
+        'Switch to Earnings to view your wallet, top up, withdraw, and trip history.',
+        'انتقل إلى الأرباح لعرض محفظتك والشحن والسحب وسجل الرحلات.',
+      );
+  String get tutorialHomeLocationTitle =>
+      _t('Center map', 'توسيط الخريطة');
+  String get tutorialHomeLocationBody => _t(
+        'Tap this button to center the map on your current location.',
+        'اضغط هذا الزر لتوسيط الخريطة على موقعك الحالي.',
+      );
+  String get tutorialHomeDashboardTitle =>
+      _t('Dashboard stats', 'إحصائيات لوحة التحكم');
+  String get tutorialHomeDashboardBody => _t(
+        'See today\'s earnings, time online, and total rides while you wait for requests.',
+        'اطلع على أرباح اليوم ووقت الاتصال وإجمالي الرحلات أثناء انتظار الطلبات.',
+      );
+
   // ── Help center ─────────────────────────────────────────────────────────────
   String get frequentlyAskedQuestions =>
       _t('Frequently Asked Questions', 'الأسئلة الشائعة');
@@ -1811,6 +1975,14 @@ class AppStrings {
   String get errVerification => _t(
         'Verification failed. Please try again.',
         'فشل التحقق. يرجى المحاولة مرة أخرى.',
+      );
+  String get sessionExpiredSignInAgain => _t(
+        'Your session has expired. Please sign in again.',
+        'انتهت جلستك. يرجى تسجيل الدخول مرة أخرى.',
+      );
+  String get accountBlockedContactSupport => _t(
+        'Your account is inactive or suspended. Please contact support.',
+        'حسابك غير نشط أو موقوف. يرجى التواصل مع الدعم.',
       );
   String get errAutoVerification => _t(
         'Automatic verification failed. Please try again.',

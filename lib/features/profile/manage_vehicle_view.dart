@@ -13,7 +13,10 @@ import '../../services/driver_status_service.dart';
 import '../../shared/widgets/app_strings_scope.dart';
 import '../../shared/widgets/responsive_screen_shell.dart';
 import '../../shared/widgets/ride_panel_shared.dart';
-import '../../../routes/app_routes.dart';
+import '../tutorial/tutorial_screen_helper.dart';
+import '../tutorial/tutorial_target.dart';
+import '../tutorial/tutorial_target_registry.dart';
+import '../../routes/app_routes.dart';
 
 class ManageVehicleArgs {
   const ManageVehicleArgs({this.fromOnboarding = false});
@@ -31,6 +34,7 @@ class ManageVehicleView extends StatefulWidget {
 }
 
 class _ManageVehicleViewState extends State<ManageVehicleView> {
+  final _tutorialRegistry = TutorialTargetRegistry();
   var _isEditing = false;
   var _isLoading = true;
   var _isSaving = false;
@@ -61,6 +65,14 @@ class _ManageVehicleViewState extends State<ManageVehicleView> {
     if (!mounted) return;
     setState(() => _isOnboardingFlow = onboarding);
     await _loadVehicle();
+    if (!mounted) return;
+    if (_isOnboardingFlow) {
+      scheduleTutorialForRoute(
+        state: this,
+        route: AppRoutes.manageVehicle,
+        registry: _tutorialRegistry,
+      );
+    }
   }
 
   Future<bool> _resolveOnboardingFlow() async {
@@ -339,9 +351,13 @@ class _ManageVehicleViewState extends State<ManageVehicleView> {
                                   ),
                                 ),
                                 ResponsiveGap(20),
-                                _VehiclePhoto(
+                                TutorialTarget(
+                                  registry: _tutorialRegistry,
+                                  id: 'vehicle_photo',
+                                  child: _VehiclePhoto(
                                   r: r,
                                   imageUrl: _vehicleImageUrl,
+                                  ),
                                 ),
                                 ResponsiveGap(24),
                                 _SectionHeading(
@@ -349,6 +365,12 @@ class _ManageVehicleViewState extends State<ManageVehicleView> {
                                   r: r,
                                 ),
                                 ResponsiveGap(16),
+                                TutorialTarget(
+                                  registry: _tutorialRegistry,
+                                  id: 'vehicle_fields',
+                                  child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
                                 _InfoField(
                                   label: s.make,
                                   value: _makeController.text,
@@ -384,6 +406,9 @@ class _ManageVehicleViewState extends State<ManageVehicleView> {
                                   controller: _licensePlateController,
                                   isEditing: _isEditing,
                                 ),
+                                  ],
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -396,10 +421,14 @@ class _ManageVehicleViewState extends State<ManageVehicleView> {
                     horizontalPadding,
                     r.gap(24),
                   ),
-                  child: RideActionButton(
+                  child: TutorialTarget(
+                    registry: _tutorialRegistry,
+                    id: 'vehicle_submit',
+                    child: RideActionButton(
                     label: _primaryButtonLabel(s),
                     color: AppColors.loginButton,
                     onPressed: _isSaving ? () {} : _onPrimaryAction,
+                    ),
                   ),
                 ),
             ],

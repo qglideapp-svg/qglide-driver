@@ -14,6 +14,9 @@ import 'password_requirements.dart';
 import 'password_requirements_checklist.dart';
 import '../verification/verification_args.dart';
 import '../../../routes/app_routes.dart';
+import '../../../features/tutorial/tutorial_screen_helper.dart';
+import '../../../features/tutorial/tutorial_target.dart';
+import '../../../features/tutorial/tutorial_target_registry.dart';
 import '../../../services/push_notification_service.dart';
 import '../widgets/auth_top_toast.dart';
 import '../widgets/auth_widgets.dart';
@@ -31,6 +34,7 @@ class SignupView extends ConsumerStatefulWidget {
 
 class _SignupViewState extends ConsumerState<SignupView>
     with AuthValidationToastState {
+  final _tutorialRegistry = TutorialTargetRegistry();
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -211,6 +215,11 @@ class _SignupViewState extends ConsumerState<SignupView>
     _phoneController.addListener(_onFormFieldsChanged);
     _passwordController.addListener(_onFormFieldsChanged);
     _confirmPasswordController.addListener(_onFormFieldsChanged);
+    scheduleTutorialForRoute(
+      state: this,
+      route: AppRoutes.signup,
+      registry: _tutorialRegistry,
+    );
   }
 
   void _onFormFieldsChanged() {
@@ -280,6 +289,12 @@ class _SignupViewState extends ConsumerState<SignupView>
             style: r.subtitleStyle(color: theme.mutedText),
           ),
           ResponsiveGap(28),
+          TutorialTarget(
+            registry: _tutorialRegistry,
+            id: 'signup_form',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
           AuthTextField(
             controller: _fullNameController,
             hintText: s.fullName,
@@ -350,10 +365,17 @@ class _SignupViewState extends ConsumerState<SignupView>
             hintText: s.referralCodeOptional,
             prefix: Icon(Icons.local_offer_outlined, size: r.iconSm, color: theme.iconMuted),
           ),
+              ],
+            ),
+          ),
           ResponsiveGap(24),
-          AuthPrimaryButton(
+          TutorialTarget(
+            registry: _tutorialRegistry,
+            id: 'signup_create_account',
+            child: AuthPrimaryButton(
             label: controller.isLoading ? s.creatingAccount : s.createAccount,
             onPressed: canCreateAccount ? _handleCreateAccount : null,
+            ),
           ),
           ResponsiveGap(16),
           RichText(
@@ -380,7 +402,10 @@ class _SignupViewState extends ConsumerState<SignupView>
           const AuthOrDivider(),
           ResponsiveGap(24),
           if (_supportsAppleSignIn)
-            Row(
+            TutorialTarget(
+              registry: _tutorialRegistry,
+              id: 'signup_social',
+              child: Row(
               children: [
                 Expanded(
                   child: AuthSocialButton(
@@ -408,9 +433,13 @@ class _SignupViewState extends ConsumerState<SignupView>
                   ),
                 ),
               ],
+            ),
             )
           else
-            AuthSocialButton(
+            TutorialTarget(
+              registry: _tutorialRegistry,
+              id: 'signup_social',
+              child: AuthSocialButton(
               label: s.google,
               backgroundColor: theme.socialButtonBackground,
               foregroundColor: onSurface,
@@ -419,8 +448,12 @@ class _SignupViewState extends ConsumerState<SignupView>
                   ? null
                   : () => unawaited(_handleGoogleSignUp()),
             ),
+            ),
           ResponsiveGap(28),
-          RichText(
+          TutorialTarget(
+            registry: _tutorialRegistry,
+            id: 'signup_login_link',
+            child: RichText(
             textAlign: TextAlign.center,
             text: TextSpan(
               style: r.bodyStyle(color: theme.mutedText),
@@ -435,6 +468,7 @@ class _SignupViewState extends ConsumerState<SignupView>
                   ),
                 ),
               ],
+            ),
             ),
           ),
             ],
