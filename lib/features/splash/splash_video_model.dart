@@ -25,6 +25,24 @@ class SplashVideoModel {
     return controller;
   }
 
+  /// Stops playback and releases the splash video player.
+  static Future<void> stopAndDispose() async {
+    final controller = _controller;
+    reset();
+    if (controller == null) return;
+
+    try {
+      if (controller.value.isInitialized) {
+        await controller.pause();
+        await controller.setVolume(0);
+      }
+    } catch (_) {}
+
+    try {
+      await controller.dispose();
+    } catch (_) {}
+  }
+
   static void reset() {
     _controller = null;
     _initializeFuture = null;

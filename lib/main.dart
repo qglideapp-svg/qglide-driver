@@ -9,6 +9,7 @@ import 'app_bootstrap.dart';
 import 'services/app_locale_service.dart';
 import 'services/app_tutorial_service.dart';
 import 'services/auth_service.dart';
+import 'services/splash_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,7 @@ Future<void> main() async {
   await AuthService.loadStoredSessionFromDisk();
   await AuthService.maintainSession();
   await AppTutorialService.loadFromDisk();
+  await SplashService.loadFromDisk();
 
   runApp(
     const ProviderScope(

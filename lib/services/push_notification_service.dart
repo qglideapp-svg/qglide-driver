@@ -133,13 +133,72 @@ class PushNotificationService {
       onRideCancelledNotification;
 
   static var _pendingRideActionInvoked = false;
+  static var _isConsumingPendingRideAction = false;
   static var _launchPayloadCaptured = false;
   static Timer? _iosTokenRetryTimer;
   static var _iosTokenRetryAttempts = 0;
+  static String? _lastKnownRideRequestId;
+
+  /// Last ride-request id seen from push or polling (used to cancel native alerts).
+  static String? get lastKnownRideRequestId => _lastKnownRideRequestId;
 
   /// True when the process was started by tapping a ride-request notification.
   static bool get shouldOpenHomeForRideLaunch =>
       _launchedFromRideRequestNotification;
+
+  static void _rememberRideRequestId(Map<String, dynamic> data) {
+    final rideId = data['ride_id']?.toString();
+    if (rideId != null && rideId.isNotEmpty) {
+      _lastKnownRideRequestId = rideId;
+    }
+  }
+
+  /// Stops in-app loop audio and cancels the native ride-request notification.
+  static Future<void> stopAllRideRequestAlerts({String? rideId}) async {
+    await RideRequestSoundService.stop();
+    final resolvedRideId = rideId ?? _lastKnownRideRequestId;
+    if (resolvedRideId != null && resolvedRideId.isNotEmpty) {
+      await cancelRideRequestNotification(resolvedRideId);
+    }
+  }
+
+  /// Re-reads stashed native notification state when the app resumes from background.
+  static Future<void> processPendingRideNotificationHandlersOnResume() async {
+    if (kIsWeb) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      if (prefs.getBool(_nativeOpenHomeForRideLaunchKey) == true) {
+        _launchedFromRideRequestNotification = true;
+        await prefs.remove(_nativeOpenHomeForRideLaunchKey);
+      }
+
+      final pendingOpen = prefs.getString(_pendingRideNotificationOpenKey);
+      if (pendingOpen != null && pendingOpen.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(pendingOpen);
+          if (decoded is Map) {
+            final data = Map<String, dynamic>.from(decoded);
+            _rememberRideRequestId(data);
+            _stashLaunchNotificationData(data);
+          }
+        } catch (_) {}
+        await prefs.remove(_pendingRideNotificationOpenKey);
+        _pendingRideHandlerInvoked = false;
+      }
+
+      final pendingActionRaw =
+          prefs.getString(_pendingRideNotificationActionKey);
+      if (pendingActionRaw != null && pendingActionRaw.isNotEmpty) {
+        _pendingRideActionInvoked = false;
+        _launchedFromRideRequestNotification = true;
+      }
+    } catch (_) {}
+
+    processPendingRideRequestOpen();
+    processPendingRideRequestAction();
+  }
 
   /// Captures notification/FCM launch payloads before [runApp] so cold-start
   /// routing can skip splash when the driver opened a ride-request alert.
@@ -163,19 +222,17 @@ class PushNotificationService {
         await prefs.remove(_nativeOpenHomeForRideLaunchKey);
       }
 
-      if (Platform.isIOS) {
-        final pendingOpen = prefs.getString(_pendingRideNotificationOpenKey);
-        if (pendingOpen != null && pendingOpen.isNotEmpty) {
-          try {
-            final decoded = jsonDecode(pendingOpen);
-            if (decoded is Map) {
-              _stashLaunchNotificationData(
-                Map<String, dynamic>.from(decoded),
-              );
-            }
-          } catch (_) {}
-          await prefs.remove(_pendingRideNotificationOpenKey);
-        }
+      final pendingOpen = prefs.getString(_pendingRideNotificationOpenKey);
+      if (pendingOpen != null && pendingOpen.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(pendingOpen);
+          if (decoded is Map) {
+            final data = Map<String, dynamic>.from(decoded);
+            _rememberRideRequestId(data);
+            _stashLaunchNotificationData(data);
+          }
+        } catch (_) {}
+        await prefs.remove(_pendingRideNotificationOpenKey);
       }
     } catch (_) {}
   }
@@ -890,6 +947,7 @@ class PushNotificationService {
   static Future<void> _deliverForegroundRideRequest(
     Map<String, dynamic> data,
   ) async {
+    _rememberRideRequestId(data);
     final rideId = data['ride_id']?.toString() ?? '';
     if (rideId.isNotEmpty) {
       unawaited(RideRequestSoundService.play(rideId));
@@ -1012,8 +1070,9 @@ class PushNotificationService {
     String actionId,
     Map<String, dynamic> data,
   ) async {
+    _rememberRideRequestId(data);
     final rideId = data['ride_id']?.toString() ?? '';
-    await _cancelRideRequestNotification(rideId);
+    await stopAllRideRequestAlerts(rideId: rideId);
 
     if (actionId == AppConstants.rideRequestNotificationActionAccept) {
       _launchedFromRideRequestNotification = true;
@@ -1102,6 +1161,8 @@ class PushNotificationService {
   }
 
   static Future<void> _consumeAndInvokePendingRideRequestAction() async {
+    if (_isConsumingPendingRideAction) return;
+    _isConsumingPendingRideAction = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_pendingRideNotificationActionKey);
@@ -1129,13 +1190,9 @@ class PushNotificationService {
         return;
       }
 
-      if (!_launchedFromRideRequestNotification &&
-          action == AppConstants.rideRequestNotificationActionAccept) {
-        await prefs.remove(_pendingRideNotificationActionKey);
-        return;
-      }
-
+      _rememberRideRequestId(data);
       await prefs.remove(_pendingRideNotificationActionKey);
+      await stopAllRideRequestAlerts(rideId: data['ride_id']?.toString());
 
       _pendingRideActionInvoked = true;
       if (action == AppConstants.rideRequestNotificationActionAccept) {
@@ -1145,6 +1202,9 @@ class PushNotificationService {
 
       await _invokeRideRequestActionHandler(action, data);
     } catch (_) {}
+    finally {
+      _isConsumingPendingRideAction = false;
+    }
   }
 
   static Future<void> _invokeRideRequestActionHandler(
@@ -1310,7 +1370,8 @@ class PushNotificationService {
   }
 
   static void _openRideRequestFromNotification(Map<String, dynamic> data) {
-    unawaited(RideRequestSoundService.stop());
+    _rememberRideRequestId(data);
+    unawaited(stopAllRideRequestAlerts(rideId: data['ride_id']?.toString()));
     if (!_pendingRideHandlerInvoked) {
       _pendingRideHandlerInvoked = true;
       unawaited(_invokeRideRequestOpenedHandler(data));

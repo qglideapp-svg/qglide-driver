@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../services/splash_service.dart';
 import 'splash_video_model.dart';
 
 class SplashController extends ChangeNotifier {
@@ -25,6 +26,11 @@ class SplashController extends ChangeNotifier {
 
   Future<void> initialize() async {
     if (_disposed) return;
+
+    if (SplashService.hasSeenSplashVideo) {
+      _markComplete();
+      return;
+    }
 
     _fallbackTimer?.cancel();
     _fallbackTimer = Timer(const Duration(seconds: 12), _markComplete);
@@ -107,6 +113,27 @@ class SplashController extends ChangeNotifier {
     _fallbackTimer = null;
     _isComplete = true;
     notifyListeners();
+  }
+
+  Future<void> stopPlayback() async {
+    _fallbackTimer?.cancel();
+    _fallbackTimer = null;
+
+    final controller = _videoController;
+    if (controller != null) {
+      controller.removeListener(_onVideoUpdate);
+      _videoController = null;
+      try {
+        if (controller.value.isInitialized) {
+          await controller.pause();
+          await controller.setVolume(0);
+        }
+      } catch (_) {}
+      try {
+        await controller.dispose();
+      } catch (_) {}
+      SplashVideoModel.reset();
+    }
   }
 
   @override

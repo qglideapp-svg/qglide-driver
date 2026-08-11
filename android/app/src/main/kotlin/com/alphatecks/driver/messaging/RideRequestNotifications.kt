@@ -1,5 +1,6 @@
 package com.alphatecks.driver.messaging
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -17,6 +18,9 @@ import com.google.firebase.messaging.RemoteMessage
 
 object RideRequestNotifications {
     private const val TAG = "RideRequestNotifications"
+    private const val PREFS_NAME = "FlutterSharedPreferences"
+    private const val DEDUPE_PREFIX = "flutter.native_ride_alert_shown_"
+    private const val DEDUPE_WINDOW_MS = 40_000L
 
     const val CHANNEL_ID = "driver_ride_requests"
     private const val CHANNEL_NAME = "Ride Requests"
@@ -41,6 +45,12 @@ object RideRequestNotifications {
     }
 
     fun show(context: Context, payload: RideRequestPayload) {
+        if (wasRecentlyShown(context, payload.rideId)) {
+            Log.d(TAG, "Skipping duplicate native ride-request alert ${payload.rideId}")
+            return
+        }
+        markShown(context, payload.rideId)
+
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(context, manager)
 
@@ -103,6 +113,35 @@ object RideRequestNotifications {
         if (rideId.isEmpty()) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(rideId.hashCode())
+    }
+
+    private fun wasRecentlyShown(context: Context, rideId: String): Boolean {
+        if (rideId.isEmpty()) return false
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val shownAt = prefs.getLong("$DEDUPE_PREFIX$rideId", 0L)
+        if (shownAt <= 0L) return false
+        return System.currentTimeMillis() - shownAt < DEDUPE_WINDOW_MS
+    }
+
+    private fun markShown(context: Context, rideId: String) {
+        if (rideId.isEmpty()) return
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong("$DEDUPE_PREFIX$rideId", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun isAppInForeground(context: Context): Boolean {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val processes = manager.runningAppProcesses ?: return false
+        for (process in processes) {
+            if (process.processName == context.packageName &&
+                process.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     fun cancelFcmDefaultNotification(context: Context, remoteMessage: RemoteMessage) {

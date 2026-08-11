@@ -55,7 +55,6 @@ class RideRequestActionActivity : Activity() {
                 Log.d(TAG, "Accept tapped for ride $rideId")
                 stashPendingAction(RideRequestNotifications.ACTION_ACCEPT, payload)
                 setOpenHomeFlag()
-                RideResponseApi.respond(this, rideId, "accept")
                 launchMainActivity(rideId, RideRequestNotifications.ACTION_ACCEPT)
             }
 
@@ -81,7 +80,7 @@ class RideRequestActionActivity : Activity() {
             getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                 .edit()
                 .putString(PENDING_ACTION_KEY, wrapper.toString())
-                .apply()
+                .commit()
         } catch (error: Exception) {
             Log.w(TAG, "Failed to stash pending ride action", error)
         }
@@ -91,7 +90,7 @@ class RideRequestActionActivity : Activity() {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .edit()
             .putBoolean(OPEN_HOME_KEY, true)
-            .apply()
+            .commit()
     }
 
     private fun launchMainActivity(rideId: String, action: String) {

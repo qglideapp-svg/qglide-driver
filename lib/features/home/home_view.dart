@@ -31,6 +31,7 @@ import '../ride/chat/ride_chat_view.dart';
 import '../ride/widgets/dial_modal.dart';
 import '../../services/ad_placement_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/push_notification_service.dart';
 import '../../services/screen_wake_service.dart';
 import '../../utils/driver_auth_navigation.dart';
 import '../auth/widgets/auth_top_toast.dart';
@@ -192,6 +193,9 @@ class _HomeViewState extends ConsumerState<HomeView>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(ScreenWakeService.enable());
+      unawaited(
+        PushNotificationService.processPendingRideNotificationHandlersOnResume(),
+      );
       unawaited(_controller.refreshDashboardOnResume());
     }
   }

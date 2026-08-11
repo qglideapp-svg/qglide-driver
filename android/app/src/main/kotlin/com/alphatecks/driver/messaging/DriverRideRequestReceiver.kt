@@ -1,7 +1,6 @@
 package com.alphatecks.driver.messaging
 
 import android.app.ActivityManager
-import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -18,6 +17,12 @@ class DriverRideRequestReceiver : BroadcastReceiver() {
 
         val remoteMessage = RemoteMessage(intent.extras)
         if (!RideRequestNotifications.isRideRequest(remoteMessage)) return
+
+        if (RideRequestNotifications.isAppInForeground(context)) {
+            Log.d(TAG, "App foreground — skipping native ride-request notification")
+            RideRequestNotifications.cancelFcmDefaultNotification(context, remoteMessage)
+            return
+        }
 
         Log.d(TAG, "Ride request FCM received — showing native Accept/Cancel notification")
         RideRequestNotifications.show(context, remoteMessage)

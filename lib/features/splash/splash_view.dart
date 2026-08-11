@@ -11,8 +11,10 @@ import '../../routes/app_routes.dart';
 import '../../services/auth_service.dart';
 import '../../utils/driver_auth_navigation.dart';
 import '../../utils/driver_navigation_target.dart';
-import 'splash_controller.dart';
 import '../../services/push_notification_service.dart';
+import '../../services/splash_service.dart';
+import 'splash_controller.dart';
+import 'splash_video_model.dart';
 
 class SplashView extends ConsumerStatefulWidget {
   const SplashView({super.key});
@@ -93,6 +95,14 @@ class _SplashViewState extends ConsumerState<SplashView> {
   }
 
   Future<void> _navigateAfterSplash() async {
+    final splashController = ref.read(splashControllerProvider);
+    await splashController.stopPlayback();
+    await SplashVideoModel.stopAndDispose();
+
+    if (!SplashService.hasSeenSplashVideo) {
+      await SplashService.markSplashVideoSeen();
+    }
+
     DriverNavigationTarget target;
     if (PushNotificationService.shouldOpenHomeForRideLaunch &&
         AuthService.hasValidSession) {
@@ -139,25 +149,27 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (!controller.isVideoReady)
-            Image.asset(
-              AppConstants.splashPosterAsset,
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
+      body: SplashService.hasSeenSplashVideo
+          ? const SizedBox.shrink()
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                if (!controller.isVideoReady)
+                  Image.asset(
+                    AppConstants.splashPosterAsset,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                  ),
+                if (controller.hasVideoController)
+                  _SplashVideoPlayer(controller: controller.videoController!),
+                if (controller.isComplete)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Colors.white70,
+                    ),
+                  ),
+              ],
             ),
-          if (controller.hasVideoController)
-            _SplashVideoPlayer(controller: controller.videoController!),
-          if (controller.isComplete)
-            const Center(
-              child: CircularProgressIndicator(
-                color: Colors.white70,
-              ),
-            ),
-        ],
-      ),
     );
   }
 }

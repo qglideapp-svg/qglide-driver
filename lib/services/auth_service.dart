@@ -4202,6 +4202,19 @@ class AuthService {
         message.contains('ride not found');
   }
 
+  static bool isRideAlreadyAcceptedResponse(Map<String, dynamic> response) {
+    if (response['success'] == true) return false;
+
+    final message = extractErrorMessage(response).toLowerCase();
+    return (message.contains('already') && message.contains('accept')) ||
+        message.contains('already been accept') ||
+        message.contains('already assigned') ||
+        message.contains('assigned to you') ||
+        message.contains('ride is not pending') ||
+        message.contains('not pending') ||
+        message.contains('cannot accept');
+  }
+
   static Future<Map<String, dynamic>> rideResponse({
     required String rideId,
     required String action,

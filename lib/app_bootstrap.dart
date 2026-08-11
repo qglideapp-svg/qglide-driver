@@ -12,7 +12,9 @@ import 'routes/app_routes.dart';
 import 'services/auth_service.dart';
 import 'services/driver_online_foreground_service.dart';
 import 'services/push_notification_service.dart';
+import 'services/splash_service.dart';
 import 'utils/driver_navigation_target.dart';
+import 'features/splash/splash_video_model.dart';
 
 /// Tracks whether startup has navigated away from the splash route.
 class StartupNavigationTracker {
@@ -123,6 +125,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     if (nav == null) return;
 
     _logPhase('notification_cold_start_redirect');
+    await SplashVideoModel.stopAndDispose();
     StartupNavigationTracker.markNavigated();
     await nav.pushReplacementNamed(AppRoutes.home);
     if (AuthService.hasValidSession) {
@@ -133,6 +136,8 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
   Future<void> _forceNavigationIfStuck() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
+    // First-time users should finish the splash video; splash has its own fallback.
+    if (!SplashService.hasSeenSplashVideo) return;
 
     _logPhase('watchdog_force_navigation');
 
@@ -148,6 +153,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     final nav = appNavigatorKey.currentState;
     if (nav == null) return;
 
+    await SplashVideoModel.stopAndDispose();
     StartupNavigationTracker.markNavigated();
     try {
       await nav.pushReplacementNamed(
