@@ -356,6 +356,46 @@ class AppStrings {
   String get withdraw => _t('Withdraw', 'سحب');
   String get earnings => _t('Earnings', 'الأرباح');
   String get walletBalance => _t('Wallet Balance', 'رصيد المحفظة');
+  String get mainWalletBalance =>
+      _t('Main Wallet Balance', 'رصيد المحفظة الرئيسية');
+  String get commissionWallet =>
+      _t('Commission Wallet', 'محفظة العمولة');
+  String get commissionWalletBalance =>
+      _t('Commission Wallet Balance', 'رصيد محفظة العمولة');
+  String get transferToCommission =>
+      _t('Transfer to Commission', 'تحويل إلى العمولة');
+  String get topUpCommissionWallet =>
+      _t('Top Up Commission Wallet', 'شحن محفظة العمولة');
+  String get mainWalletDescription => _t(
+        'Trip earnings and digital payments. Withdraw from here.',
+        'أرباح الرحلات والمدفوعات الرقمية. اسحب أموالك من هنا.',
+      );
+  String get commissionWalletDescription => _t(
+        'Used for QGlide commission on trips. Top up or transfer from your main wallet.',
+        'تُستخدم لعمولة QGlide على الرحلات. اشحنها أو حوّل من محفظتك الرئيسية.',
+      );
+  String get commissionWalletRequiredTitle => _t(
+        'Commission wallet needs funds',
+        'محفظة العمولة تحتاج إلى رصيد',
+      );
+  String get commissionWalletRequiredBody => _t(
+        'Your commission wallet is empty. Top up or transfer funds from your main wallet to receive ride requests.',
+        'محفظة العمولة فارغة. اشحنها أو حوّل أموالاً من محفظتك الرئيسية لاستقبال طلبات الرحلات.',
+      );
+  String get commissionWalletRequiredShort => _t(
+        'Fund your commission wallet to receive rides.',
+        'موّل محفظة العمولة لاستقبال الرحلات.',
+      );
+  String get transferToCommissionSuccess => _t(
+        'Funds transferred to your commission wallet.',
+        'تم تحويل الأموال إلى محفظة العمولة.',
+      );
+  String get errTransferToCommission => _t(
+        'Could not transfer funds. Please try again.',
+        'تعذر تحويل الأموال. يرجى المحاولة مرة أخرى.',
+      );
+  String get transferFromMainWallet =>
+      _t('Transfer from Main Wallet', 'تحويل من المحفظة الرئيسية');
   String get withdrawal => _t('Withdrawal', 'السحب');
   String get rawBalance => _t('Raw Balance', 'الرصيد الخام');
   String get verifiedBalance => _t('Verified Balance', 'الرصيد الموثّق');
@@ -369,7 +409,7 @@ class AppStrings {
   String get noActiveRideToChat =>
       _t('No active ride to chat with.', 'لا توجد رحلة نشطة للمحادثة.');
   String get walletToppedUp =>
-      _t('Wallet topped up successfully.', 'تم شحن المحفظة بنجاح.');
+      _t('Commission wallet topped up successfully.', 'تم شحن محفظة العمولة بنجاح.');
   String get topUpCancelled =>
       _t('Top-up was cancelled.', 'تم إلغاء الشحن.');
   String get confirmingPayment =>

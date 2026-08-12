@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../app_bootstrap.dart';
-import '../../config/app_constants.dart';
 import '../../core/providers/app_providers.dart';
 import '../../routes/app_routes.dart';
 import '../../services/auth_service.dart';
@@ -13,6 +12,7 @@ import '../../utils/driver_auth_navigation.dart';
 import '../../utils/driver_navigation_target.dart';
 import '../../services/push_notification_service.dart';
 import '../../services/splash_service.dart';
+import '../auth/widgets/auth_widgets.dart';
 import 'splash_controller.dart';
 import 'splash_video_model.dart';
 
@@ -64,12 +64,21 @@ class _SplashViewState extends ConsumerState<SplashView> {
   Future<DriverNavigationTarget> _resolveNavigationTarget() async {
     await AuthService.loadStoredSessionFromDisk();
     await AuthService.maintainSession();
+
+    if (SplashService.hasSeenSplashVideo) {
+      final fastTarget =
+          await DriverAuthNavigation.resolveFastReturningSplashTarget();
+      if (fastTarget != null) {
+        return fastTarget;
+      }
+    }
+
     try {
       return await DriverAuthNavigation.resolveSplashTarget().timeout(
         const Duration(seconds: 8),
         onTimeout: () {
           if (AuthService.hasValidSession) {
-            return DriverNavigationTarget(route: AppRoutes.home);
+            return const DriverNavigationTarget(route: AppRoutes.home);
           }
           return DriverNavigationTarget(
             route: AuthService.unauthenticatedEntryRoute,
@@ -78,7 +87,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
       );
     } catch (_) {
       if (AuthService.hasValidSession) {
-        return DriverNavigationTarget(route: AppRoutes.home);
+        return const DriverNavigationTarget(route: AppRoutes.home);
       }
       return DriverNavigationTarget(
         route: AuthService.unauthenticatedEntryRoute,
@@ -95,18 +104,16 @@ class _SplashViewState extends ConsumerState<SplashView> {
   }
 
   Future<void> _navigateAfterSplash() async {
-    final splashController = ref.read(splashControllerProvider);
-    await splashController.stopPlayback();
-    await SplashVideoModel.stopAndDispose();
-
     if (!SplashService.hasSeenSplashVideo) {
+      final splashController = ref.read(splashControllerProvider);
+      await splashController.stopPlayback();
+      await SplashVideoModel.stopAndDispose();
       await SplashService.markSplashVideoSeen();
     }
 
     DriverNavigationTarget target;
     if (PushNotificationService.shouldOpenHomeForRideLaunch &&
         AuthService.hasValidSession) {
-      await AuthService.maintainSession();
       target = const DriverNavigationTarget(route: AppRoutes.home);
     } else {
       try {
@@ -149,27 +156,34 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: SplashService.hasSeenSplashVideo
-          ? const SizedBox.shrink()
-          : Stack(
-              fit: StackFit.expand,
-              children: [
-                if (!controller.isVideoReady)
-                  Image.asset(
-                    AppConstants.splashPosterAsset,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                  ),
-                if (controller.hasVideoController)
-                  _SplashVideoPlayer(controller: controller.videoController!),
-                if (controller.isComplete)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Colors.white70,
-                    ),
-                  ),
-              ],
-            ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (SplashService.hasSeenSplashVideo ||
+              !controller.isVideoReady ||
+              controller.isComplete)
+            const _SplashBrandLoader(),
+          if (!SplashService.hasSeenSplashVideo &&
+              controller.hasVideoController &&
+              controller.isVideoReady &&
+              !controller.isComplete)
+            _SplashVideoPlayer(controller: controller.videoController!),
+        ],
+      ),
+    );
+  }
+}
+
+class _SplashBrandLoader extends StatelessWidget {
+  const _SplashBrandLoader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: AppLogo(height: 120),
+      ),
     );
   }
 }

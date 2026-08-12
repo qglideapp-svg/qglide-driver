@@ -2747,6 +2747,11 @@ class AuthService {
     if (data is! Map<String, dynamic>) return null;
 
     final payload = unwrapAuthPayload(data);
+    final wallets = payload['wallets'];
+    if (wallets is Map<String, dynamic>) {
+      return DriverWalletBalance.fromJson(wallets);
+    }
+
     return DriverWalletBalance.fromJson(payload);
   }
 
@@ -3231,6 +3236,70 @@ class AuthService {
         'error': {'message': 'Network error: $e'},
       };
     }
+  }
+
+  static Future<Map<String, dynamic>> transferToCommissionWallet({
+    required double amount,
+  }) async {
+    await refreshSessionIfNeeded();
+
+    final headers = _authorizedHeaders;
+    if (headers == null) {
+      return {
+        'success': false,
+        'error': {'message': 'Not logged in. Please sign in again.'},
+      };
+    }
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse(ApiConfig.driverTransferToCommissionUrl),
+            headers: headers,
+            body: json.encode({'amount': amount}),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      return _handleResponse(response);
+    } catch (e) {
+      return {
+        'success': false,
+        'error': {'message': 'Network error: $e'},
+      };
+    }
+  }
+
+  static DriverWalletBalance? extractTransferWalletBalance(
+    Map<String, dynamic> response,
+  ) {
+    if (response['success'] != true) return null;
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) return null;
+
+    final payload = unwrapAuthPayload(data);
+    final wallets = payload['wallets'];
+    if (wallets is Map<String, dynamic>) {
+      return DriverWalletBalance.fromJson(wallets);
+    }
+
+    if (_hasWalletBalanceFields(payload)) {
+      return DriverWalletBalance.fromJson(payload);
+    }
+
+    final wallet = payload['wallet_balance'];
+    if (wallet is Map<String, dynamic>) {
+      return DriverWalletBalance.fromPayoutResponse(wallet);
+    }
+
+    return extractWalletBalance(response);
+  }
+
+  static bool _hasWalletBalanceFields(Map<String, dynamic> json) {
+    return json.containsKey('main_wallet_balance') ||
+        json.containsKey('commission_balance') ||
+        json.containsKey('earnings_balance') ||
+        json['main_wallet'] is Map<String, dynamic> ||
+        json['commission_wallet'] is Map<String, dynamic>;
   }
 
   static Future<Map<String, dynamic>> createDepositIntent({

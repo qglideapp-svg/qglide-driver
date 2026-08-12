@@ -13,6 +13,7 @@ import 'services/auth_service.dart';
 import 'services/driver_online_foreground_service.dart';
 import 'services/push_notification_service.dart';
 import 'services/splash_service.dart';
+import 'utils/driver_auth_navigation.dart';
 import 'utils/driver_navigation_target.dart';
 import 'features/splash/splash_video_model.dart';
 
@@ -40,13 +41,34 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_tryFastStartForReturningUser());
       if (_bootstrapStarted) return;
       _bootstrapStarted = true;
       unawaited(_runBootstrap());
     });
-    _watchdogTimer = Timer(const Duration(seconds: 12), () {
+    _watchdogTimer = Timer(const Duration(seconds: 6), () {
       unawaited(_forceNavigationIfStuck());
     });
+  }
+
+  Future<void> _tryFastStartForReturningUser() async {
+    if (StartupNavigationTracker.hasLeftSplash) return;
+    if (!SplashService.hasSeenSplashVideo) return;
+    if (!AuthService.hasValidSession) return;
+
+    final target =
+        await DriverAuthNavigation.resolveFastReturningSplashTarget();
+    if (target == null || target.route != AppRoutes.home) return;
+
+    final nav = appNavigatorKey.currentState;
+    if (nav == null || StartupNavigationTracker.hasLeftSplash) return;
+
+    _logPhase('fast_start_home');
+    StartupNavigationTracker.markNavigated();
+    await nav.pushReplacementNamed(target.route, arguments: target.arguments);
+    if (AuthService.hasValidSession) {
+      unawaited(PushNotificationService.registerTokenIfLoggedIn());
+    }
   }
 
   @override

@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_constants.dart';
 import '../config/app_strings.dart';
+import 'declined_ride_storage.dart';
 import '../app_navigator_key.dart';
 import '../features/home/models/nearby_ride_offer.dart';
 import '../features/ride/call/in_app_call_args.dart';
@@ -242,6 +243,7 @@ class PushNotificationService {
   static Future<void> clearStaleNotificationActionsOnNormalLaunch() async {
     if (shouldOpenHomeForRideLaunch || kIsWeb) return;
 
+    clearPendingRideRequestLaunchState();
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_pendingRideNotificationActionKey);
@@ -250,6 +252,31 @@ class PushNotificationService {
         await prefs.remove(_nativeOpenHomeForRideLaunchKey);
       }
     } catch (_) {}
+  }
+
+  /// Clears in-memory ride-request launch state after decline or normal launch.
+  static void clearPendingRideRequestLaunchState({String? rideId}) {
+    if (rideId != null && rideId.isNotEmpty) {
+      final pendingRideId = _pendingNotificationData?['ride_id']?.toString();
+      if (pendingRideId != null &&
+          pendingRideId.isNotEmpty &&
+          pendingRideId != rideId) {
+        return;
+      }
+      if (_lastKnownRideRequestId != null &&
+          _lastKnownRideRequestId!.isNotEmpty &&
+          _lastKnownRideRequestId != rideId) {
+        return;
+      }
+    }
+
+    _pendingNotificationData = null;
+    _launchedFromRideRequestNotification = false;
+    _pendingRideHandlerInvoked = false;
+    _pendingRideActionInvoked = false;
+    if (rideId == null || rideId.isEmpty) {
+      _lastKnownRideRequestId = null;
+    }
   }
 
   static Future<void> initialize() async {
@@ -618,12 +645,12 @@ class PushNotificationService {
 
   /// Invokes the ride-open handler for any pending launch payload once
   /// [onRideRequestNotificationOpened] is registered.
-  static void processPendingRideRequestOpen() {
+  static Future<void> processPendingRideRequestOpen() async {
     final pending = _pendingNotificationData;
     if (pending == null || !isRideRequestNotification(pending)) return;
     if (_pendingRideHandlerInvoked) return;
     _pendingRideHandlerInvoked = true;
-    unawaited(_invokeRideRequestOpenedHandler(pending));
+    await _invokeRideRequestOpenedHandler(pending);
   }
 
   /// Invokes a stashed Accept action once [onRideRequestNotificationAction]
@@ -1145,6 +1172,8 @@ class PushNotificationService {
     if (rideId == null || rideId.isEmpty || !AuthService.isLoggedIn) return;
 
     await AuthService.rideResponse(rideId: rideId, action: 'decline');
+    await DeclinedRideStorage.remember(rideId);
+    clearPendingRideRequestLaunchState(rideId: rideId);
   }
 
   static Future<void> _stashPendingRideRequestAction(

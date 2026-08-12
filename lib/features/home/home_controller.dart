@@ -13,6 +13,7 @@ import '../../config/app_strings.dart';
 import '../../services/active_ride_storage.dart';
 import '../../services/added_stop_arrival_sound_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/declined_ride_storage.dart';
 import '../../services/directions_service.dart';
 import '../../services/driver_online_foreground_service.dart';
 import '../../services/push_notification_service.dart';
@@ -46,9 +47,32 @@ class HomeController extends ChangeNotifier {
   }
 
   /// Processes any ride-request notification payloads/actions once Home is mounted.
-  void processPendingRideNotificationHandlers() {
-    PushNotificationService.processPendingRideRequestOpen();
+  Future<void> processPendingRideNotificationHandlers() async {
+    await _ensureDeclinedRideIdsLoaded();
+    await PushNotificationService.processPendingRideRequestOpen();
     PushNotificationService.processPendingRideRequestAction();
+  }
+
+  Future<void> _ensureDeclinedRideIdsLoaded() async {
+    if (_declinedRideIdsLoaded) return;
+    _declinedRideIds.addAll(await DeclinedRideStorage.loadActiveIds());
+    _declinedRideIdsLoaded = true;
+  }
+
+  bool _wasRideDeclined(String? rideId) {
+    if (rideId == null || rideId.isEmpty) return false;
+    return _declinedRideIds.contains(rideId);
+  }
+
+  Future<void> _rememberDeclinedRide(String rideId) async {
+    final normalized = rideId.trim();
+    if (normalized.isEmpty) return;
+    _declinedRideIds.add(normalized);
+    _declinedRideIdsLoaded = true;
+    await DeclinedRideStorage.remember(normalized);
+    PushNotificationService.clearPendingRideRequestLaunchState(
+      rideId: normalized,
+    );
   }
 
   var _isOnline = false;
@@ -115,6 +139,8 @@ class HomeController extends ChangeNotifier {
   DriverRideDetails? _lastCompletedRideDetails;
   var _showsTopUp = false;
   var _showsWithdrawal = false;
+  var _showsTransfer = false;
+  var _isProcessingTransfer = false;
   static const _locationUpdateIntervalIdle = Duration(seconds: 8);
   static const _locationUpdateIntervalEnRoute = Duration(seconds: 2);
   static const _navigationFollowZoom = 18.0;
@@ -164,6 +190,8 @@ class HomeController extends ChangeNotifier {
   NearbyRideOffer? _currentRideOffer;
   NearbyRideOffer? _acceptedRideOffer;
   NearbyRideOffer? _persistedRideOffer;
+  final _declinedRideIds = <String>{};
+  var _declinedRideIdsLoaded = false;
 
   BitmapDescriptor? _driverCarIcon;
   BitmapDescriptor? _pickupPinIcon;
@@ -202,7 +230,9 @@ class HomeController extends ChangeNotifier {
   bool get isLoadingWalletBalance => _isLoadingWalletBalance;
   bool get isProcessingTopUp => _isProcessingTopUp;
   bool get isProcessingWithdrawal => _isProcessingWithdrawal;
+  bool get isProcessingTransfer => _isProcessingTransfer;
   DriverWalletBalance? get walletBalance => _walletBalance;
+  bool get hasCommissionFunds => _walletBalance?.hasCommissionFunds ?? true;
   bool get isLoadingCompletedTrips => _isLoadingCompletedTrips;
   List<DriverCompletedTrip> get completedTrips => _completedTrips;
   int get completedTripsTotalCount => _completedTripsTotalCount;
@@ -283,7 +313,9 @@ class HomeController extends ChangeNotifier {
   DriverRideDetails? get lastCompletedRideDetails => _lastCompletedRideDetails;
   bool get showsTopUp => _showsTopUp;
   bool get showsWithdrawal => _showsWithdrawal;
-  bool get showsEarningsFlow => _showsTopUp || _showsWithdrawal;
+  bool get showsTransfer => _showsTransfer;
+  bool get showsEarningsFlow =>
+      _showsTopUp || _showsWithdrawal || _showsTransfer;
   bool get showsBottomModal => hasRideRequest || _hasActivePickup;
   bool get showsRidePanel => _hasActiveRide || _hasActiveTrip;
   bool get hasAcceptedRide =>
@@ -403,10 +435,24 @@ class HomeController extends ChangeNotifier {
 
   List<LatLng> get _activeRoutePoints => _fullRoutePoints;
 
+  Future<bool> ensureCommissionWalletFunded() async {
+    if (_walletBalance == null && !_isLoadingWalletBalance) {
+      await loadWalletBalance();
+    }
+    return _walletBalance?.hasCommissionFunds ?? true;
+  }
+
   Future<String?> toggleOnlineStatus() async {
     if (_isUpdatingOnlineStatus) return null;
 
     final targetStatus = !_isOnline;
+    if (targetStatus) {
+      final funded = await ensureCommissionWalletFunded();
+      if (!funded) {
+        return AppStrings.current().commissionWalletRequiredShort;
+      }
+    }
+
     final previousStatus = _isOnline;
 
     _isUpdatingOnlineStatus = true;
@@ -458,6 +504,7 @@ class HomeController extends ChangeNotifier {
         notifyListeners();
         if (_isOnline) {
           unawaited(PushNotificationService.registerTokenIfLoggedIn());
+          unawaited(loadWalletBalance());
         }
         unawaited(loadTodayStats());
         return null;
@@ -667,6 +714,60 @@ class HomeController extends ChangeNotifier {
 
     _referralStateLoaded = true;
     notifyListeners();
+  }
+
+  String? validateTransferAmount(double amount) {
+    final s = AppStrings.current();
+    if (amount <= 0) return s.errValidAmount;
+    final available = _walletBalance?.availableBalance ?? 0;
+    if (amount > available) {
+      return s.errAmountExceedsBalance(available.toStringAsFixed(2));
+    }
+    return null;
+  }
+
+  Future<(bool, String?)> submitTransferToCommission(double amount) async {
+    _isProcessingTransfer = true;
+    notifyListeners();
+
+    try {
+      final balanceLoaded = await refreshAvailableBalanceForWithdrawal();
+      if (!balanceLoaded) {
+        return (false, AppStrings.current().errLoadBalance);
+      }
+
+      final validationError = validateTransferAmount(amount);
+      if (validationError != null) {
+        return (false, validationError);
+      }
+
+      final response = await AuthService.transferToCommissionWallet(
+        amount: amount,
+      );
+
+      if (response['success'] != true) {
+        return (
+          false,
+          AuthService.extractErrorMessage(
+            response,
+            fallback: AppStrings.current().errTransferToCommission,
+          ),
+        );
+      }
+
+      final wallet = AuthService.extractTransferWalletBalance(response);
+      if (wallet != null) {
+        _walletBalance = wallet;
+      } else {
+        await loadWalletBalance();
+      }
+
+      notifyListeners();
+      return (true, AppStrings.current().transferToCommissionSuccess);
+    } finally {
+      _isProcessingTransfer = false;
+      notifyListeners();
+    }
   }
 
   Future<TopUpCheckoutArgs?> prepareTopUpCheckout(double amount) async {
@@ -1009,8 +1110,35 @@ class HomeController extends ChangeNotifier {
     }
     _lastMapSurfaceRefreshAt = now;
 
+    if (_mapController != null) {
+      unawaited(_recoverIdleMapSurface());
+      return;
+    }
+
+    _scheduleMapSurfaceRecreate();
+  }
+
+  Future<void> _recoverIdleMapSurface() async {
+    if (_mapController == null) {
+      _scheduleMapSurfaceRecreate();
+      return;
+    }
+
+    try {
+      await _syncMapCamera(animated: false);
+      notifyListeners();
+    } on PlatformException {
+      _scheduleMapSurfaceRecreate();
+    } catch (_) {
+      _scheduleMapSurfaceRecreate();
+    }
+  }
+
+  void _scheduleMapSurfaceRecreate() {
     detachMapController();
-    notifyListeners();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (hasListeners) notifyListeners();
+    });
   }
 
   Future<void> _recoverActiveRideMapSurface() async {
@@ -1163,6 +1291,7 @@ class HomeController extends ChangeNotifier {
         showsEarningsFlow) {
       _showsTopUp = false;
       _showsWithdrawal = false;
+      _showsTransfer = false;
       notifyListeners();
       return;
     }
@@ -1176,6 +1305,7 @@ class HomeController extends ChangeNotifier {
     if (tab == DashboardTab.driver) {
       _showsTopUp = false;
       _showsWithdrawal = false;
+      _showsTransfer = false;
       if (!_hasLoadedDashboardStats || _driverFullName.isEmpty) {
         unawaited(refreshDashboardOnResume());
       }
@@ -1188,6 +1318,7 @@ class HomeController extends ChangeNotifier {
   void openTopUp() {
     _selectedTab = DashboardTab.earnings;
     _showsWithdrawal = false;
+    _showsTransfer = false;
     _showsTopUp = true;
     unawaited(ensureEarningsLoaded());
     notifyListeners();
@@ -1202,6 +1333,7 @@ class HomeController extends ChangeNotifier {
   void openWithdrawal() {
     _selectedTab = DashboardTab.earnings;
     _showsTopUp = false;
+    _showsTransfer = false;
     _showsWithdrawal = true;
     unawaited(ensureEarningsLoaded());
     notifyListeners();
@@ -1213,9 +1345,25 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void openTransfer() {
+    _selectedTab = DashboardTab.earnings;
+    _showsTopUp = false;
+    _showsWithdrawal = false;
+    _showsTransfer = true;
+    unawaited(ensureEarningsLoaded());
+    notifyListeners();
+  }
+
+  void closeTransfer() {
+    _showsTransfer = false;
+    unawaited(loadWalletBalance());
+    notifyListeners();
+  }
+
   void closeEarningsFlow() {
     _showsTopUp = false;
     _showsWithdrawal = false;
+    _showsTransfer = false;
     unawaited(refreshEarnings());
     notifyListeners();
   }
@@ -1241,6 +1389,7 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> restoreActiveRideOnLaunch() async {
+    await _ensureDeclinedRideIdsLoaded();
     _persistedRideOffer = await ActiveRideStorage.load();
     await _fetchRideStatus(allowWhenOffline: true);
     if (hasAcceptedRide || _isPendingRideAcceptance) {
@@ -1805,7 +1954,7 @@ class HomeController extends ChangeNotifier {
       }
 
       final offer = NearbyRideOffer.fromMap(rides.first);
-      if (offer == null || !offer.isPending) {
+      if (offer == null || !offer.isPending || _wasRideDeclined(offer.id)) {
         if (_hasRideRequest) {
           dismissRideRequest();
         }
@@ -1868,6 +2017,12 @@ class HomeController extends ChangeNotifier {
     if (hasAcceptedRide || _isAcceptingRide || _isPendingRideAcceptance) {
       return;
     }
+    if (_wasRideDeclined(offer.id)) {
+      return;
+    }
+    if (!hasCommissionFunds) {
+      return;
+    }
 
     _clearNearbyMissTracking();
 
@@ -1893,18 +2048,18 @@ class HomeController extends ChangeNotifier {
   Future<void> handleRideRequestNotificationOpened(
     Map<String, dynamic> data,
   ) async {
-    final previewOffer = NearbyRideOffer.fromNotificationData(data);
-    if (previewOffer != null &&
-        previewOffer.isPending &&
-        !hasAcceptedRide &&
-        !_isAcceptingRide &&
-        !_isPendingRideAcceptance) {
-      _openedRideRequestFromNotification = true;
-      _showRideRequest(previewOffer);
-      notifyListeners();
+    final rideId = data['ride_id']?.toString();
+    await _ensureDeclinedRideIdsLoaded();
+    if (_wasRideDeclined(rideId)) {
+      PushNotificationService.clearPendingRideRequestLaunchState(rideId: rideId);
+      return;
     }
 
-    unawaited(_refreshRideRequestAfterNotificationOpened(data));
+    if (!hasAcceptedRide && !_isAcceptingRide && !_isPendingRideAcceptance) {
+      _openedRideRequestFromNotification = true;
+    }
+
+    await _refreshRideRequestAfterNotificationOpened(data);
   }
 
   /// Dismisses a stale ride-request panel when the rider cancels.
@@ -1949,7 +2104,7 @@ class HomeController extends ChangeNotifier {
     if (rideId == null || rideId.isEmpty) return;
 
     if (action == AppConstants.rideRequestNotificationActionIgnore) {
-      await declineRideRequest();
+      await declineRideRequest(rideIdOverride: rideId);
       return;
     }
 
@@ -2025,6 +2180,13 @@ class HomeController extends ChangeNotifier {
         _isFetchingNearbyRides) {
       return;
     }
+    if (_wasRideDeclined(rideId)) {
+      if (_hasRideRequest &&
+          (rideId == null || _currentRideOffer?.id == rideId)) {
+        dismissRideRequest();
+      }
+      return;
+    }
 
     _isFetchingNearbyRides = true;
     try {
@@ -2074,8 +2236,9 @@ class HomeController extends ChangeNotifier {
     }
   }
 
-  void dismissRideRequest() {
-    if (_isAcceptingRide || _isDecliningRide || _isPendingRideAcceptance) {
+  void dismissRideRequest({bool force = false}) {
+    if (!force &&
+        (_isAcceptingRide || _isDecliningRide || _isPendingRideAcceptance)) {
       return;
     }
 
@@ -2091,10 +2254,11 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String?> declineRideRequest() async {
+  Future<String?> declineRideRequest({String? rideIdOverride}) async {
     if (_isAcceptingRide || _isDecliningRide) return null;
 
-    final rideId = _currentRideOffer?.id ?? _pendingAcceptRideId;
+    final rideId =
+        rideIdOverride ?? _currentRideOffer?.id ?? _pendingAcceptRideId;
     if (rideId == null || rideId.isEmpty) {
       _isPendingRideAcceptance = false;
       _pendingAcceptRideId = null;
@@ -2104,21 +2268,24 @@ class HomeController extends ChangeNotifier {
 
     _isDecliningRide = true;
     notifyListeners();
+    String? error;
     try {
       final response =
           await AuthService.rideResponse(rideId: rideId, action: 'decline');
       _isPendingRideAcceptance = false;
       _pendingAcceptRideId = null;
-      dismissRideRequest();
       if (response['success'] == true ||
           AuthService.isRideAlreadyCancelledResponse(response)) {
+        await _rememberDeclinedRide(rideId);
+        dismissRideRequest(force: true);
         return null;
       }
-      return AuthService.extractErrorMessage(response);
+      error = AuthService.extractErrorMessage(response);
     } finally {
       _isDecliningRide = false;
       notifyListeners();
     }
+    return error;
   }
 
   bool _shouldSuppressRideRequestSound(String rideId) {
@@ -2133,6 +2300,11 @@ class HomeController extends ChangeNotifier {
     final offer = _currentRideOffer;
     if (offer == null || _isAcceptingRide || _isDecliningRide) {
       return AppStrings.current().errNoRideToAccept;
+    }
+
+    final funded = await ensureCommissionWalletFunded();
+    if (!funded) {
+      return AppStrings.current().commissionWalletRequiredShort;
     }
 
     _lastAcceptAttemptRideId = offer.id;
@@ -2158,7 +2330,7 @@ class HomeController extends ChangeNotifier {
 
       if (response['success'] != true) {
         if (AuthService.isRideAlreadyCancelledResponse(response)) {
-          dismissRideRequest();
+          dismissRideRequest(force: true);
           if (_isOnline) {
             startNearbyRidesPolling();
           }
@@ -3241,6 +3413,11 @@ class HomeController extends ChangeNotifier {
       _maybeNotifyPickupEtaChanged();
     }
     if (!notify) return;
+
+    // Earnings screens cover the map — avoid rebuilding the native surface on GPS ticks.
+    if (_selectedTab == DashboardTab.earnings && !hasAcceptedRide) {
+      return;
+    }
 
     if (_hasActiveTrip || _shouldSnapToRoute) {
       if (movedMeters >= _markerNotifyMinMoveMeters) {

@@ -110,6 +110,24 @@ class DriverAuthNavigation {
     return DriverNavigationTarget(route: routeForAccess(accessRoute));
   }
 
+  /// Fast splash path for returning users — uses stored session and onboarding
+  /// progress from disk instead of waiting on backend round-trips.
+  static Future<DriverNavigationTarget?> resolveFastReturningSplashTarget() async {
+    if (!AuthService.hasValidSession) return null;
+
+    final storedRoute = await DriverStatusService.resolveStoredAccessRoute();
+    if (storedRoute == null || storedRoute == DriverAccessRoute.dashboard) {
+      return const DriverNavigationTarget(route: AppRoutes.home);
+    }
+
+    if (storedRoute == DriverAccessRoute.login ||
+        storedRoute == DriverAccessRoute.phoneVerification) {
+      return null;
+    }
+
+    return targetForAccessRoute(storedRoute);
+  }
+
   /// Splash: restore session, ask backend onboarding status, resume correct screen.
   static Future<DriverNavigationTarget> resolveSplashTarget() async {
     await AuthService.loadStoredSessionFromDisk();

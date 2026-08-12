@@ -248,7 +248,7 @@ class _CurrentBalanceSection extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              s.currentBalance,
+              s.commissionWalletBalance,
               style: TextStyle(
                 fontFamily: AppFonts.satoshi,
                 fontSize: r.sp(14).clamp(13.0, 15.0),

@@ -50,6 +50,8 @@ class ApiConfig {
   static const processDepositUrl = '$supabaseUrl/functions/v1/process-deposit';
   static const driverRequestPayoutUrl =
       '$supabaseUrl/functions/v1/driver-request-payout';
+  static const driverTransferToCommissionUrl =
+      '$supabaseUrl/functions/v1/driver-transfer-to-commission';
   static const callsStartUrl = '$supabaseUrl/functions/v1/calls-start';
   static const callsEndUrl = '$supabaseUrl/functions/v1/calls-end';
   static const rtcZegoTokenUrl = '$supabaseUrl/functions/v1/rtc-zego-token';

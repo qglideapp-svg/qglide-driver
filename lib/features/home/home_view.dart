@@ -22,6 +22,7 @@ import '../../routes/app_routes.dart';
 import 'widgets/active_pickup_panel.dart';
 import 'widgets/active_trip_panel.dart';
 import 'widgets/cancel_trip_modal.dart';
+import 'widgets/commission_wallet_required_modal.dart';
 import 'widgets/earnings_panel.dart';
 import 'widgets/refer_driver_modal.dart';
 import 'widgets/arrived_at_added_stop_modal.dart';
@@ -41,6 +42,7 @@ import 'widgets/ride_dashboard_panel.dart';
 import 'widgets/ride_request_panel.dart';
 import 'widgets/top_up_checkout_view.dart';
 import 'widgets/top_up_panel.dart';
+import 'widgets/transfer_to_commission_panel.dart';
 import 'widgets/withdrawal_panel.dart';
 import '../ride/call/in_app_call_args.dart';
 import '../tutorial/app_tutorial_replay.dart';
@@ -83,7 +85,7 @@ class _HomeViewState extends ConsumerState<HomeView>
         if (!mounted) return;
 
         final controller = ref.read(homeControllerProvider);
-        controller.processPendingRideNotificationHandlers();
+        await controller.processPendingRideNotificationHandlers();
         if (!mounted) return;
         await AuthService.maintainSession();
         if (!mounted) return;
@@ -345,15 +347,31 @@ class _HomeViewState extends ConsumerState<HomeView>
     unawaited(_handleGoOnlinePressedAsync());
   }
 
+  Future<void> _showCommissionWalletRequiredModal() {
+    return CommissionWalletRequiredModal.show(
+      context,
+      onTopUp: _controller.openTopUp,
+      onTransfer: _controller.openTransfer,
+    );
+  }
+
   Future<void> _handleGoOnlinePressedAsync() async {
     final error = await _controller.toggleOnlineStatus();
     if (!mounted || error == null) return;
+    if (error == AppStringsScope.of(context).commissionWalletRequiredShort) {
+      await _showCommissionWalletRequiredModal();
+      return;
+    }
     _showLocationErrorSnackBar(error);
   }
 
   Future<void> _handleAcceptRide() async {
     final error = await _controller.acceptRideRequest();
     if (!mounted || error == null) return;
+    if (error == AppStringsScope.of(context).commissionWalletRequiredShort) {
+      await _showCommissionWalletRequiredModal();
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(error)),
     );
@@ -560,6 +578,20 @@ class _HomeViewState extends ConsumerState<HomeView>
     }
   }
 
+  Future<void> _handleTransfer(double amount) async {
+    final (success, message) =
+        await _controller.submitTransferToCommission(amount);
+    if (!mounted || message == null) return;
+
+    if (success) {
+      _controller.closeTransfer();
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   Future<void> _handleWithdrawal({
     required double amount,
     required String bankAccountName,
@@ -644,9 +676,7 @@ class _HomeViewState extends ConsumerState<HomeView>
 
     return Scaffold(
       backgroundColor: DashboardTheme.of(context).scaffold,
-      resizeToAvoidBottomInset: !(
-        _controller.showsTopUp || _controller.showsWithdrawal
-      ),
+      resizeToAvoidBottomInset: !_controller.showsEarningsFlow,
       body: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -824,6 +854,7 @@ class _HomeViewState extends ConsumerState<HomeView>
                                 onGoOnlinePressed: _handleGoOnlinePressed,
                                 onTopUp: _handleTopUp,
                                 onWithdraw: _handleWithdrawal,
+                                onTransfer: _handleTransfer,
                                 onRefer: () => unawaited(_handleRefer()),
                                 tutorialRegistry: _tutorialRegistry,
                               ),
@@ -975,39 +1006,114 @@ class _DashboardHeader extends StatelessWidget {
   }
 }
 
-class _MapSection extends ConsumerWidget {
+class _MapSection extends ConsumerStatefulWidget {
   const _MapSection({required this.showMap});
 
   final bool showMap;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.watch(homeControllerProvider);
+  ConsumerState<_MapSection> createState() => _MapSectionState();
+}
+
+class _MapSectionState extends ConsumerState<_MapSection> {
+  HomeController? _controller;
+  var _renderSignature = '';
+  var _hasActiveTrip = false;
+  var _mapSessionId = -1;
+  var _mapDarkMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = ref.read(homeControllerProvider);
+    _captureControllerState(_controller!);
+    _controller!.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final darkMode = DashboardTheme.of(context).isDark;
+    if (darkMode != _mapDarkMode) {
+      setState(() => _mapDarkMode = darkMode);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+
+    final nextSignature = _renderSignatureFor(controller);
+    final dashboard = DashboardTheme.of(context);
+    final darkMode = dashboard.isDark;
+    if (nextSignature == _renderSignature &&
+        controller.hasActiveTrip == _hasActiveTrip &&
+        controller.mapSessionId == _mapSessionId &&
+        darkMode == _mapDarkMode) {
+      return;
+    }
+
+    setState(() => _captureControllerState(controller));
+  }
+
+  String _renderSignatureFor(HomeController controller) {
+    final parts = <String>[
+      '${controller.markers.length}',
+      '${controller.polylines.length}',
+    ];
+    for (final marker in controller.markers) {
+      parts.add(
+        '${marker.markerId.value}:'
+        '${marker.position.latitude.toStringAsFixed(5)},'
+        '${marker.position.longitude.toStringAsFixed(5)},'
+        '${marker.rotation.toStringAsFixed(1)}',
+      );
+    }
+    return parts.join('|');
+  }
+
+  void _captureControllerState(HomeController controller) {
+    _renderSignature = _renderSignatureFor(controller);
+    _hasActiveTrip = controller.hasActiveTrip;
+    _mapSessionId = controller.mapSessionId;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller!;
     final dashboard = DashboardTheme.of(context);
 
-    if (!showMap) {
+    if (!widget.showMap) {
       return ColoredBox(color: dashboard.mapFallback);
     }
 
-    return GoogleMap(
-      key: ValueKey('home_map_${controller.mapSessionId}'),
-      initialCameraPosition: CameraPosition(
-        target: controller.cameraTarget,
-        zoom: controller.hasActiveTrip ? 18 : 16,
+    return RepaintBoundary(
+      child: GoogleMap(
+        key: ValueKey('home_map_$_mapSessionId'),
+        initialCameraPosition: CameraPosition(
+          target: controller.cameraTarget,
+          zoom: _hasActiveTrip ? 18 : 16,
+        ),
+        onMapCreated: controller.attachMapController,
+        markers: controller.markers,
+        polylines: controller.polylines,
+        myLocationEnabled: false,
+        myLocationButtonEnabled: false,
+        zoomControlsEnabled: false,
+        mapToolbarEnabled: false,
+        compassEnabled: false,
+        liteModeEnabled: false,
+        minMaxZoomPreference: _hasActiveTrip
+            ? const MinMaxZoomPreference(17, 20)
+            : MinMaxZoomPreference.unbounded,
+        style: dashboard.isDark ? DashboardTheme.darkMapStyle : null,
       ),
-      onMapCreated: controller.attachMapController,
-      markers: controller.markers,
-      polylines: controller.polylines,
-      myLocationEnabled: false,
-      myLocationButtonEnabled: false,
-      zoomControlsEnabled: false,
-      mapToolbarEnabled: false,
-      compassEnabled: false,
-      liteModeEnabled: false,
-      minMaxZoomPreference: controller.hasActiveTrip
-          ? const MinMaxZoomPreference(17, 20)
-          : MinMaxZoomPreference.unbounded,
-      style: dashboard.isDark ? DashboardTheme.darkMapStyle : null,
     );
   }
 }
@@ -1111,6 +1217,7 @@ class _DashboardPanel extends StatelessWidget {
     required this.onGoOnlinePressed,
     required this.onTopUp,
     required this.onWithdraw,
+    required this.onTransfer,
     required this.onRefer,
     required this.tutorialRegistry,
   });
@@ -1127,6 +1234,7 @@ class _DashboardPanel extends StatelessWidget {
     required String iban,
     required String accountNumber,
   }) onWithdraw;
+  final Future<void> Function(double amount) onTransfer;
   final VoidCallback onRefer;
   final TutorialTargetRegistry tutorialRegistry;
 
@@ -1186,8 +1294,10 @@ class _DashboardPanel extends StatelessWidget {
                             ? _EarningsFlowNavHeader(
                                 controller: controller,
                                 title: controller.showsTopUp
-                                    ? s.topUp
-                                    : s.withdraw,
+                                    ? s.topUpCommissionWallet
+                                    : controller.showsTransfer
+                                        ? s.transferToCommission
+                                        : s.withdraw,
                                 onEarningsTap: controller.closeEarningsFlow,
                               )
                             : _DashboardTabs(
@@ -1203,7 +1313,8 @@ class _DashboardPanel extends StatelessWidget {
                                 isLoading: controller.isLoadingWalletBalance,
                                 isProcessingTopUp: controller.isProcessingTopUp,
                                 currentBalance:
-                                    controller.walletBalance?.primaryBalance ?? 0,
+                                    controller.walletBalance?.commissionBalance ??
+                                        0,
                                 onTopUp: onTopUp,
                               )
                             : controller.showsWithdrawal
@@ -1216,7 +1327,23 @@ class _DashboardPanel extends StatelessWidget {
                                         0,
                                     onWithdraw: onWithdraw,
                                   )
-                                : EarningsPanel(
+                                : controller.showsTransfer
+                                    ? TransferToCommissionPanel(
+                                        isLoading:
+                                            controller.isLoadingWalletBalance,
+                                        isProcessing:
+                                            controller.isProcessingTransfer,
+                                        mainAvailableBalance: controller
+                                                .walletBalance
+                                                ?.availableBalance ??
+                                            0,
+                                        commissionBalance: controller
+                                                .walletBalance
+                                                ?.commissionBalance ??
+                                            0,
+                                        onTransfer: onTransfer,
+                                      )
+                                    : EarningsPanel(
                                     isLoading: controller.isLoadingWalletBalance,
                                     isLoadingSignupBonus:
                                         controller.isLoadingSignupBonus,
@@ -1246,6 +1373,7 @@ class _DashboardPanel extends StatelessWidget {
                                     onRefresh: controller.refreshEarnings,
                                     onTopUp: controller.openTopUp,
                                     onWithdrawal: controller.openWithdrawal,
+                                    onTransfer: controller.openTransfer,
                                     onRefer: onRefer,
                                   ),
                       ),

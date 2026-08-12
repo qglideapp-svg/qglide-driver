@@ -17,6 +17,7 @@ class EarningsPanel extends StatefulWidget {
     super.key,
     required this.onTopUp,
     required this.onWithdrawal,
+    required this.onTransfer,
     required this.onRefer,
     this.isLoading = false,
     this.isLoadingSignupBonus = false,
@@ -37,6 +38,7 @@ class EarningsPanel extends StatefulWidget {
 
   final VoidCallback onTopUp;
   final VoidCallback onWithdrawal;
+  final VoidCallback onTransfer;
   final VoidCallback onRefer;
   final bool isLoading;
   final bool isLoadingSignupBonus;
@@ -92,7 +94,9 @@ class _EarningsPanelState extends State<EarningsPanel> {
               children: [
                 _BalanceHeader(
                   balanceVisible: _balanceVisible,
+                  title: s.mainWalletBalance,
                   totalBalance: wallet?.primaryBalance ?? 0,
+                  subtitle: s.mainWalletDescription,
                   onToggleVisibility: () {
                     setState(() => _balanceVisible = !_balanceVisible);
                   },
@@ -101,6 +105,7 @@ class _EarningsPanelState extends State<EarningsPanel> {
                 _ActionButtonsRow(
                   onTopUp: widget.onTopUp,
                   onWithdrawal: widget.onWithdrawal,
+                  onTransfer: widget.onTransfer,
                   onRefer: widget.onRefer,
                   isReferLoading: widget.isLoadingReferDriver,
                   isReferEnabled: widget.isReferEnabled,
@@ -119,10 +124,9 @@ class _EarningsPanelState extends State<EarningsPanel> {
                 SizedBox(height: r.gap(10)),
                 _WalletBalanceGrid(
                   balanceVisible: _balanceVisible,
-                  rawBalance: wallet?.rawBalance ?? 0,
-                  verifiedBalance: wallet?.verifiedBalance ?? 0,
+                  mainBalance: wallet?.primaryBalance ?? 0,
+                  commissionBalance: wallet?.commissionBalance ?? 0,
                   pendingWithdrawals: wallet?.pendingWithdrawals ?? 0,
-                  negativeBalance: wallet?.negativeBalance ?? 0,
                 ),
               ],
             ),
@@ -194,13 +198,17 @@ TextStyle balanceAmountTextStyle(AppResponsive r, Color color) {
 class _BalanceHeader extends StatelessWidget {
   const _BalanceHeader({
     required this.balanceVisible,
+    required this.title,
     required this.totalBalance,
     required this.onToggleVisibility,
+    this.subtitle,
   });
 
   final bool balanceVisible;
+  final String title;
   final double totalBalance;
   final VoidCallback onToggleVisibility;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -240,10 +248,34 @@ class _BalanceHeader extends StatelessWidget {
         ),
         SizedBox(height: r.gap(6)),
         Text(
+          title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: AppFonts.satoshi,
+            fontSize: r.sp(14).clamp(13.0, 15.0),
+            fontWeight: FontWeight.w600,
+            color: dashboard.secondaryText,
+          ),
+        ),
+        SizedBox(height: r.gap(4)),
+        Text(
           balanceVisible ? formatQar(totalBalance) : s.hiddenBalanceFull,
           textAlign: TextAlign.center,
           style: balanceAmountTextStyle(r, dashboard.primaryText),
         ),
+        if (subtitle != null) ...[
+          SizedBox(height: r.gap(8)),
+          Text(
+            subtitle!,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: AppFonts.satoshi,
+              fontSize: r.sp(13).clamp(12.0, 14.0),
+              height: 1.35,
+              color: dashboard.mutedText,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -253,6 +285,7 @@ class _ActionButtonsRow extends StatelessWidget {
   const _ActionButtonsRow({
     required this.onTopUp,
     required this.onWithdrawal,
+    required this.onTransfer,
     required this.onRefer,
     this.isReferLoading = false,
     this.isReferEnabled = true,
@@ -260,6 +293,7 @@ class _ActionButtonsRow extends StatelessWidget {
 
   final VoidCallback onTopUp;
   final VoidCallback onWithdrawal;
+  final VoidCallback onTransfer;
   final VoidCallback onRefer;
   final bool isReferLoading;
   final bool isReferEnabled;
@@ -268,34 +302,49 @@ class _ActionButtonsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final r = context.responsive;
     final s = AppStringsScope.of(context);
-    final gap = r.gap(12);
+    final gap = r.gap(10);
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Column(
       children: [
-        Expanded(
-          child: _EarningsIconActionButton(
-            label: s.topUp,
-            iconAsset: AppConstants.topUpIconAsset,
-            onPressed: onTopUp,
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: _EarningsIconActionButton(
+                label: s.topUp,
+                iconAsset: AppConstants.topUpIconAsset,
+                onPressed: onTopUp,
+              ),
+            ),
+            SizedBox(width: gap),
+            Expanded(
+              child: _EarningsIconActionButton(
+                label: s.withdrawal,
+                iconAsset: AppConstants.withdrawalIconAsset,
+                onPressed: onWithdrawal,
+              ),
+            ),
+          ],
         ),
-        SizedBox(width: gap),
-        Expanded(
-          child: _EarningsIconActionButton(
-            label: s.withdrawal,
-            iconAsset: AppConstants.withdrawalIconAsset,
-            onPressed: onWithdrawal,
-          ),
-        ),
-        SizedBox(width: gap),
-        Expanded(
-          child: _EarningsIconActionButton(
-            label: s.referAFriend,
-            icon: Icons.card_giftcard_rounded,
-            isLoading: isReferLoading,
-            onPressed: isReferEnabled ? onRefer : null,
-          ),
+        SizedBox(height: gap),
+        Row(
+          children: [
+            Expanded(
+              child: _EarningsIconActionButton(
+                label: s.transferToCommission,
+                icon: Icons.swap_horiz_rounded,
+                onPressed: onTransfer,
+              ),
+            ),
+            SizedBox(width: gap),
+            Expanded(
+              child: _EarningsIconActionButton(
+                label: s.referAFriend,
+                icon: Icons.card_giftcard_rounded,
+                isLoading: isReferLoading,
+                onPressed: isReferEnabled ? onRefer : null,
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -421,17 +470,15 @@ class _SectionHeading extends StatelessWidget {
 class _WalletBalanceGrid extends StatelessWidget {
   const _WalletBalanceGrid({
     required this.balanceVisible,
-    required this.rawBalance,
-    required this.verifiedBalance,
+    required this.mainBalance,
+    required this.commissionBalance,
     required this.pendingWithdrawals,
-    required this.negativeBalance,
   });
 
   final bool balanceVisible;
-  final double rawBalance;
-  final double verifiedBalance;
+  final double mainBalance;
+  final double commissionBalance;
   final double pendingWithdrawals;
-  final double negativeBalance;
 
   @override
   Widget build(BuildContext context) {
@@ -445,45 +492,40 @@ class _WalletBalanceGrid extends StatelessWidget {
           children: [
             Expanded(
               child: _WalletBalanceCard(
-                label: s.rawBalance,
-                iconAsset: AppConstants.rawBalanceIconAsset,
-                amount: rawBalance,
-                balanceVisible: balanceVisible,
-              ),
-            ),
-            SizedBox(width: gap),
-            Expanded(
-              child: _WalletBalanceCard(
-                label: s.verifiedBalance,
+                label: s.mainWalletBalance,
                 iconAsset: AppConstants.verifiedBalanceIconAsset,
-                amount: verifiedBalance,
-                balanceVisible: balanceVisible,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: gap),
-        Row(
-          children: [
-            Expanded(
-              child: _WalletBalanceCard(
-                label: s.pendingWithdrawals,
-                iconAsset: AppConstants.pendingWithdrawalsIconAsset,
-                amount: pendingWithdrawals,
+                amount: mainBalance,
                 balanceVisible: balanceVisible,
               ),
             ),
             SizedBox(width: gap),
             Expanded(
               child: _WalletBalanceCard(
-                label: s.negativeBalance,
-                iconAsset: AppConstants.negativeBalanceIconAsset,
-                amount: negativeBalance,
+                label: s.commissionWallet,
+                iconAsset: AppConstants.rawBalanceIconAsset,
+                amount: commissionBalance,
                 balanceVisible: balanceVisible,
               ),
             ),
           ],
         ),
+        if (pendingWithdrawals > 0) ...[
+          SizedBox(height: gap),
+          Row(
+            children: [
+              Expanded(
+                child: _WalletBalanceCard(
+                  label: s.pendingWithdrawals,
+                  iconAsset: AppConstants.pendingWithdrawalsIconAsset,
+                  amount: pendingWithdrawals,
+                  balanceVisible: balanceVisible,
+                ),
+              ),
+              SizedBox(width: gap),
+              const Expanded(child: SizedBox.shrink()),
+            ],
+          ),
+        ],
       ],
     );
   }
