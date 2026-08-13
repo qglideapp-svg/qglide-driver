@@ -29,10 +29,33 @@ class _SplashViewState extends ConsumerState<SplashView> {
   Future<DriverNavigationTarget>? _navigationTargetFuture;
   Timer? _startupFallbackTimer;
 
+  bool get _shouldSkipIntroVideo =>
+      AuthService.hasValidSession || SplashService.hasSeenSplashVideo;
+
   @override
   void initState() {
     super.initState();
     _navigationTargetFuture = _resolveNavigationTarget();
+
+    if (_shouldSkipIntroVideo) {
+      unawaited(SplashVideoModel.stopAndDispose());
+      unawaited(
+        _navigationTargetFuture!.then((_) {
+          if (mounted && !_hasNavigated) {
+            _scheduleNavigation();
+          }
+        }),
+      );
+      _startupFallbackTimer = Timer(
+        Duration(seconds: AuthService.hasValidSession ? 4 : 8),
+        () {
+          if (!mounted || _hasNavigated) return;
+          _scheduleNavigation();
+        },
+      );
+      return;
+    }
+
     _startupFallbackTimer = Timer(const Duration(seconds: 15), () {
       if (!mounted || _hasNavigated) return;
       _scheduleNavigation();
@@ -65,7 +88,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
     await AuthService.loadStoredSessionFromDisk();
     await AuthService.maintainSession();
 
-    if (SplashService.hasSeenSplashVideo) {
+    if (_shouldSkipIntroVideo) {
       final fastTarget =
           await DriverAuthNavigation.resolveFastReturningSplashTarget();
       if (fastTarget != null) {
@@ -75,7 +98,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
     try {
       return await DriverAuthNavigation.resolveSplashTarget().timeout(
-        const Duration(seconds: 8),
+        Duration(seconds: AuthService.hasValidSession ? 3 : 8),
         onTimeout: () {
           if (AuthService.hasValidSession) {
             return const DriverNavigationTarget(route: AppRoutes.home);
@@ -104,7 +127,12 @@ class _SplashViewState extends ConsumerState<SplashView> {
   }
 
   Future<void> _navigateAfterSplash() async {
-    if (!SplashService.hasSeenSplashVideo) {
+    if (_shouldSkipIntroVideo) {
+      await SplashVideoModel.stopAndDispose();
+      if (AuthService.hasValidSession) {
+        await SplashService.markSplashVideoSeen();
+      }
+    } else if (!SplashService.hasSeenSplashVideo) {
       final splashController = ref.read(splashControllerProvider);
       await splashController.stopPlayback();
       await SplashVideoModel.stopAndDispose();
@@ -146,6 +174,13 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
   @override
   Widget build(BuildContext context) {
+    if (_shouldSkipIntroVideo) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: _SplashBrandLoader(),
+      );
+    }
+
     final controller = ref.watch(splashControllerProvider);
 
     if (controller.isComplete) {
@@ -159,12 +194,9 @@ class _SplashViewState extends ConsumerState<SplashView> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (SplashService.hasSeenSplashVideo ||
-              !controller.isVideoReady ||
-              controller.isComplete)
+          if (!controller.isVideoReady || controller.isComplete)
             const _SplashBrandLoader(),
-          if (!SplashService.hasSeenSplashVideo &&
-              controller.hasVideoController &&
+          if (controller.hasVideoController &&
               controller.isVideoReady &&
               !controller.isComplete)
             _SplashVideoPlayer(controller: controller.videoController!),

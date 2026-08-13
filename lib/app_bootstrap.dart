@@ -53,8 +53,9 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
   Future<void> _tryFastStartForReturningUser() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
-    if (!SplashService.hasSeenSplashVideo) return;
     if (!AuthService.hasValidSession) return;
+
+    await SplashVideoModel.stopAndDispose();
 
     final target =
         await DriverAuthNavigation.resolveFastReturningSplashTarget();
@@ -158,8 +159,10 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
   Future<void> _forceNavigationIfStuck() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
-    // First-time users should finish the splash video; splash has its own fallback.
-    if (!SplashService.hasSeenSplashVideo) return;
+    // First-time logged-out users should finish the splash video.
+    if (!SplashService.hasSeenSplashVideo && !AuthService.hasValidSession) {
+      return;
+    }
 
     _logPhase('watchdog_force_navigation');
 
