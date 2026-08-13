@@ -34,6 +34,7 @@ import '../../services/ad_placement_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/push_notification_service.dart';
 import '../../services/screen_wake_service.dart';
+import '../../features/splash/splash_video_model.dart';
 import '../../utils/driver_auth_navigation.dart';
 import '../auth/widgets/auth_top_toast.dart';
 import 'widgets/driver_ad_placement_banner.dart';
@@ -76,6 +77,7 @@ class _HomeViewState extends ConsumerState<HomeView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(SplashVideoModel.suppressIntro());
     unawaited(ScreenWakeService.enable());
     _controller.addListener(_onControllerUpdated);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -89,7 +91,10 @@ class _HomeViewState extends ConsumerState<HomeView>
         if (!mounted) return;
         await AuthService.maintainSession();
         if (!mounted) return;
-        await controller.restoreActiveRideOnLaunch();
+        await Future.wait([
+          controller.restoreActiveRideOnLaunch(),
+          controller.loadWalletBalance(),
+        ]);
         if (!mounted) return;
         await controller.loadTodayStats();
         if (!mounted) return;
@@ -193,7 +198,15 @@ class _HomeViewState extends ConsumerState<HomeView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      unawaited(SplashVideoModel.suppressIntro());
+      return;
+    }
+
     if (state == AppLifecycleState.resumed) {
+      unawaited(SplashVideoModel.suppressIntro());
       unawaited(ScreenWakeService.enable());
       unawaited(
         PushNotificationService.processPendingRideNotificationHandlersOnResume(),

@@ -6,6 +6,7 @@ import '../features/profile/manage_vehicle_view.dart';
 import '../routes/app_routes.dart';
 import '../services/auth_service.dart';
 import '../services/driver_status_service.dart';
+import '../features/splash/splash_video_model.dart';
 import 'driver_navigation_target.dart';
 
 class DriverAuthNavigation {
@@ -353,6 +354,7 @@ class DriverAuthNavigation {
     Map<String, dynamic>? loginResponse,
     bool replace = true,
   }) async {
+    await SplashVideoModel.suppressIntro();
     try {
       final target = await resolveNavigationTarget(loginResponse: loginResponse);
       if (!context.mounted) return;

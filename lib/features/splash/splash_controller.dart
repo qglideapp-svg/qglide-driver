@@ -32,6 +32,12 @@ class SplashController extends ChangeNotifier {
     if (_disposed) return;
 
     if (_shouldSkipIntroVideo) {
+      unawaited(SplashVideoModel.suppressIntro());
+      _markComplete();
+      return;
+    }
+
+    if (SplashVideoModel.isIntroSuppressed) {
       _markComplete();
       return;
     }
@@ -62,6 +68,10 @@ class SplashController extends ChangeNotifier {
       }
 
       _scheduleFallbackTimer(controller.value.duration);
+      if (SplashVideoModel.isIntroSuppressed) {
+        _markComplete();
+        return;
+      }
       await controller.play();
     } catch (error) {
       _markComplete();

@@ -1087,26 +1087,6 @@ class _LazyEarningsPanelState extends State<_LazyEarningsPanel>
                       ),
                     ],
                   ),
-                  SizedBox(height: r.gap(10)),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _LazyWalletCardPlaceholder(
-                          opacity: opacity,
-                          dashboard: dashboard,
-                          r: r,
-                        ),
-                      ),
-                      SizedBox(width: r.gap(10)),
-                      Expanded(
-                        child: _LazyWalletCardPlaceholder(
-                          opacity: opacity,
-                          dashboard: dashboard,
-                          r: r,
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),

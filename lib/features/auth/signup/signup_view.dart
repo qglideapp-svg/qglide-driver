@@ -18,6 +18,7 @@ import '../../../features/tutorial/tutorial_screen_helper.dart';
 import '../../../features/tutorial/tutorial_target.dart';
 import '../../../features/tutorial/tutorial_target_registry.dart';
 import '../../../services/push_notification_service.dart';
+import '../../../features/splash/splash_video_model.dart';
 import '../widgets/auth_top_toast.dart';
 import '../widgets/auth_widgets.dart';
 import '../../../shared/widgets/app_strings_scope.dart';
@@ -165,8 +166,10 @@ class _SignupViewState extends ConsumerState<SignupView>
   }
 
   Future<void> _handleGoogleSignUp() async {
+    unawaited(SplashVideoModel.suppressIntro());
     final response = await _controller.signInWithGoogle(
       onAccountSelected: () {
+        unawaited(SplashVideoModel.suppressIntro());
         if (mounted) setState(() => _isSocialAuthenticating = true);
       },
     );
@@ -183,6 +186,7 @@ class _SignupViewState extends ConsumerState<SignupView>
   }
 
   Future<void> _handleAppleSignUp() async {
+    unawaited(SplashVideoModel.suppressIntro());
     if (mounted) setState(() => _isSocialAuthenticating = true);
 
     final response = await _controller.signInWithApple();
@@ -210,6 +214,7 @@ class _SignupViewState extends ConsumerState<SignupView>
   @override
   void initState() {
     super.initState();
+    unawaited(SplashVideoModel.suppressIntro());
     _fullNameController.addListener(_onFormFieldsChanged);
     _emailController.addListener(_onFormFieldsChanged);
     _phoneController.addListener(_onFormFieldsChanged);

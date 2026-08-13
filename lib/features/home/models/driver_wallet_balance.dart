@@ -97,7 +97,6 @@ class WalletAccountBalance {
     final balance = _readWalletDouble(
       json['balance'] ??
           json['main_wallet_balance'] ??
-          json['commission_balance'] ??
           json['earnings_balance'] ??
           fallbackBalance,
     );
@@ -106,7 +105,6 @@ class WalletAccountBalance {
           json['available'] ??
           json['main_wallet_balance'] ??
           json['earnings_balance'] ??
-          json['commission_balance'] ??
           json['balance'] ??
           fallbackBalance,
     );

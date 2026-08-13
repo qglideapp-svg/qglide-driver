@@ -55,7 +55,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     if (StartupNavigationTracker.hasLeftSplash) return;
     if (!AuthService.hasValidSession) return;
 
-    await SplashVideoModel.stopAndDispose();
+    await SplashVideoModel.suppressIntro();
 
     final target =
         await DriverAuthNavigation.resolveFastReturningSplashTarget();
@@ -148,7 +148,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     if (nav == null) return;
 
     _logPhase('notification_cold_start_redirect');
-    await SplashVideoModel.stopAndDispose();
+    await SplashVideoModel.suppressIntro();
     StartupNavigationTracker.markNavigated();
     await nav.pushReplacementNamed(AppRoutes.home);
     if (AuthService.hasValidSession) {
@@ -178,7 +178,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     final nav = appNavigatorKey.currentState;
     if (nav == null) return;
 
-    await SplashVideoModel.stopAndDispose();
+    await SplashVideoModel.suppressIntro();
     StartupNavigationTracker.markNavigated();
     try {
       await nav.pushReplacementNamed(

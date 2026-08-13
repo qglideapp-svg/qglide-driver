@@ -11,6 +11,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../config/api_config.dart';
 import '../config/app_strings.dart';
+import '../features/splash/splash_video_model.dart';
 import 'app_locale_service.dart';
 import 'apple_sign_in_service.dart';
 import '../features/home/models/deposit_payment.dart';
@@ -1587,6 +1588,7 @@ class AuthService {
     bool completeRegistration = true,
   }) async {
     try {
+      await SplashVideoModel.suppressIntro();
       await _clearGoogleSignInSession();
 
       final account = await _googleSignIn.signIn();
@@ -1598,6 +1600,7 @@ class AuthService {
         };
       }
 
+      await SplashVideoModel.suppressIntro();
       onAccountSelected?.call();
 
       final googleAuth = await account.authentication;
@@ -1678,6 +1681,7 @@ class AuthService {
     bool completeRegistration = true,
   }) async {
     try {
+      await SplashVideoModel.suppressIntro();
       final credentials = await AppleSignInService.getCredentials();
 
       final response = await http
@@ -2752,7 +2756,11 @@ class AuthService {
       return DriverWalletBalance.fromJson(wallets);
     }
 
-    return DriverWalletBalance.fromJson(payload);
+    if (_hasWalletBalanceFields(payload)) {
+      return DriverWalletBalance.fromJson(payload);
+    }
+
+    return null;
   }
 
   static Future<Map<String, dynamic>> getWalletBalance({

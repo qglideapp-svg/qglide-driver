@@ -38,7 +38,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
     _navigationTargetFuture = _resolveNavigationTarget();
 
     if (_shouldSkipIntroVideo) {
-      unawaited(SplashVideoModel.stopAndDispose());
+      unawaited(SplashVideoModel.suppressIntro());
       unawaited(
         _navigationTargetFuture!.then((_) {
           if (mounted && !_hasNavigated) {
@@ -81,6 +81,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
   void dispose() {
     _startupFallbackTimer?.cancel();
     _splashSubscription?.close();
+    unawaited(SplashVideoModel.suppressIntro());
     super.dispose();
   }
 
@@ -128,15 +129,17 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
   Future<void> _navigateAfterSplash() async {
     if (_shouldSkipIntroVideo) {
-      await SplashVideoModel.stopAndDispose();
+      await SplashVideoModel.suppressIntro();
       if (AuthService.hasValidSession) {
         await SplashService.markSplashVideoSeen();
       }
     } else if (!SplashService.hasSeenSplashVideo) {
       final splashController = ref.read(splashControllerProvider);
       await splashController.stopPlayback();
-      await SplashVideoModel.stopAndDispose();
+      await SplashVideoModel.suppressIntro();
       await SplashService.markSplashVideoSeen();
+    } else {
+      await SplashVideoModel.suppressIntro();
     }
 
     DriverNavigationTarget target;

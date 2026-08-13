@@ -1193,24 +1193,45 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> loadWalletBalance() async {
+  Future<void> loadWalletBalance({bool retry = true}) async {
+    if (_isLoadingWalletBalance) return;
+
     _isLoadingWalletBalance = true;
     notifyListeners();
 
-    final response = await AuthService.getWalletBalance();
-    final wallet = AuthService.extractWalletBalance(response);
+    try {
+      final attempts = retry ? 2 : 1;
+      for (var attempt = 0; attempt < attempts; attempt++) {
+        if (attempt > 0) {
+          await AuthService.maintainSession();
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
 
-    if (wallet != null) {
-      _walletBalance = wallet;
-      final today = wallet.today;
-      if (today != null) {
-        _todayEarningsAmount = today.totalEarnings;
-        _todayRidesDisplay = today.ridesCompleted.toString();
+        final response = await AuthService.getWalletBalance();
+        final wallet = AuthService.extractWalletBalance(response);
+        if (wallet == null) continue;
+
+        _walletBalance = wallet;
+        final today = wallet.today;
+        if (today != null) {
+          _todayEarningsAmount = today.totalEarnings;
+          _todayRidesDisplay = today.ridesCompleted.toString();
+        }
+        return;
       }
+    } finally {
+      _isLoadingWalletBalance = false;
+      notifyListeners();
     }
+  }
 
-    _isLoadingWalletBalance = false;
-    notifyListeners();
+  Future<void> _waitForWalletBalanceLoad({
+    Duration timeout = const Duration(seconds: 35),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (_isLoadingWalletBalance && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
   }
 
   Future<void> loadCompletedTrips({int? offset}) async {
@@ -1252,21 +1273,28 @@ class HomeController extends ChangeNotifier {
     unawaited(loadDriverProfile());
     unawaited(loadReferDriver());
 
-    if (_hasLoadedEarnings) return;
+    if (_hasLoadedEarnings && _walletBalance != null) return;
 
-    if (_isLoadingWalletBalance || _isLoadingCompletedTrips) {
-      return;
+    if (_isLoadingWalletBalance) {
+      await _waitForWalletBalanceLoad();
     }
 
-    _isLoadingWalletBalance = true;
-    _isLoadingCompletedTrips = true;
-    notifyListeners();
+    if (_walletBalance == null) {
+      await loadWalletBalance();
+    }
 
-    await Future.wait([
-      loadWalletBalance(),
-      loadCompletedTrips(offset: 0),
-    ]);
-    _hasLoadedEarnings = true;
+    if (!_hasLoadedEarnings) {
+      if (_isLoadingCompletedTrips) {
+        final deadline = DateTime.now().add(const Duration(seconds: 35));
+        while (_isLoadingCompletedTrips && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      } else {
+        await loadCompletedTrips(offset: 0);
+      }
+      _hasLoadedEarnings = true;
+    }
+
     notifyListeners();
   }
 

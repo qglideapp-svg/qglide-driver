@@ -13,6 +13,7 @@ import 'routes/app_routes.dart';
 import 'services/ad_placement_service.dart';
 import 'services/auth_service.dart';
 import 'services/push_notification_service.dart';
+import 'features/splash/splash_video_model.dart';
 import 'shared/widgets/app_strings_scope.dart';
 
 class App extends ConsumerStatefulWidget {
@@ -41,6 +42,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         AdPlacementCache.instance.start();
+        unawaited(SplashVideoModel.suppressIntro());
         unawaited(PushNotificationService.stopAllRideRequestAlerts(
           rideId: PushNotificationService.lastKnownRideRequestId,
         ));
@@ -53,6 +55,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
+        unawaited(SplashVideoModel.suppressIntro());
         AdPlacementCache.instance.stop();
     }
   }
