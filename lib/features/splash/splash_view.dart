@@ -24,35 +24,29 @@ class SplashView extends ConsumerStatefulWidget {
 }
 
 class _SplashViewState extends ConsumerState<SplashView> {
+  static const _returningUserMinLogoDuration = Duration(milliseconds: 900);
+  static const _returningUserMaxWait = Duration(seconds: 3);
+
   var _hasNavigated = false;
   ProviderSubscription<SplashController>? _splashSubscription;
   Future<DriverNavigationTarget>? _navigationTargetFuture;
   Timer? _startupFallbackTimer;
-
-  bool get _shouldSkipIntroVideo =>
-      AuthService.hasValidSession || SplashService.hasSeenSplashVideo;
+  final _logoShownAt = DateTime.now();
+  late final bool _showIntroVideo;
 
   @override
   void initState() {
     super.initState();
+    _showIntroVideo = SplashService.shouldPlayIntroVideo;
     _navigationTargetFuture = _resolveNavigationTarget();
 
-    if (_shouldSkipIntroVideo) {
+    if (!_showIntroVideo) {
       unawaited(SplashVideoModel.suppressIntro());
-      unawaited(
-        _navigationTargetFuture!.then((_) {
-          if (mounted && !_hasNavigated) {
-            _scheduleNavigation();
-          }
-        }),
-      );
-      _startupFallbackTimer = Timer(
-        Duration(seconds: AuthService.hasValidSession ? 4 : 8),
-        () {
-          if (!mounted || _hasNavigated) return;
-          _scheduleNavigation();
-        },
-      );
+      unawaited(_navigateWhenReturningUserReady());
+      _startupFallbackTimer = Timer(_returningUserMaxWait, () {
+        if (!mounted || _hasNavigated) return;
+        _scheduleNavigation();
+      });
       return;
     }
 
@@ -77,6 +71,23 @@ class _SplashViewState extends ConsumerState<SplashView> {
     });
   }
 
+  Future<void> _navigateWhenReturningUserReady() async {
+    try {
+      await _navigationTargetFuture;
+    } catch (_) {}
+
+    if (!mounted || _hasNavigated) return;
+
+    final elapsed = DateTime.now().difference(_logoShownAt);
+    final remaining = _returningUserMinLogoDuration - elapsed;
+    if (remaining > Duration.zero) {
+      await Future<void>.delayed(remaining);
+    }
+
+    if (!mounted || _hasNavigated) return;
+    _scheduleNavigation();
+  }
+
   @override
   void dispose() {
     _startupFallbackTimer?.cancel();
@@ -88,7 +99,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
     await AuthService.loadStoredSessionFromDisk();
     await AuthService.maintainSession();
 
-    if (_shouldSkipIntroVideo) {
+    if (!_showIntroVideo) {
       final fastTarget =
           await DriverAuthNavigation.resolveFastReturningSplashTarget();
       if (fastTarget != null) {
@@ -127,18 +138,13 @@ class _SplashViewState extends ConsumerState<SplashView> {
   }
 
   Future<void> _navigateAfterSplash() async {
-    if (_shouldSkipIntroVideo) {
+    if (!_showIntroVideo) {
       await SplashVideoModel.suppressIntro();
-      if (AuthService.hasValidSession) {
-        await SplashService.markSplashVideoSeen();
-      }
     } else {
       final splashController = ref.read(splashControllerProvider);
       await splashController.stopPlayback();
       await SplashVideoModel.suppressIntro();
-      if (!SplashService.hasSeenSplashVideo) {
-        await SplashService.markSplashVideoSeen();
-      }
+      await SplashService.markSplashVideoSeen();
     }
 
     DriverNavigationTarget target;
@@ -180,7 +186,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
   @override
   Widget build(BuildContext context) {
-    if (_shouldSkipIntroVideo) {
+    if (!_showIntroVideo) {
       return const Scaffold(
         backgroundColor: Colors.black,
         body: _SplashBrandLoader(),

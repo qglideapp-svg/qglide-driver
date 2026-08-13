@@ -53,6 +53,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
   Future<void> _tryFastStartForReturningUser() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
+    if (!SplashService.hasSeenSplashVideo) return;
     if (!AuthService.hasValidSession) return;
 
     await SplashVideoModel.suppressIntro();
@@ -160,8 +161,8 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
   Future<void> _forceNavigationIfStuck() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
-    // First-time logged-out users should finish the splash video.
-    if (!SplashService.hasSeenSplashVideo && !AuthService.hasValidSession) {
+    // First-time users must finish the intro splash video once.
+    if (!SplashService.hasSeenSplashVideo) {
       return;
     }
 

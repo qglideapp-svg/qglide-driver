@@ -11,6 +11,9 @@ class SplashService {
 
   static bool get hasSeenSplashVideo => _hasSeenSplashVideo;
 
+  /// True only on the very first app open before the intro video has finished once.
+  static bool get shouldPlayIntroVideo => !_hasSeenSplashVideo;
+
   static Future<void> loadFromDisk() async {
     if (_prefsUnavailable) return;
     try {

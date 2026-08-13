@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 
-import '../../services/auth_service.dart';
 import '../../services/splash_service.dart';
 import 'splash_video_model.dart';
 
@@ -25,13 +24,10 @@ class SplashController extends ChangeNotifier {
 
   bool get isComplete => _isComplete;
 
-  static bool get _shouldSkipIntroVideo =>
-      SplashService.hasSeenSplashVideo || AuthService.hasValidSession;
-
   Future<void> initialize() async {
     if (_disposed) return;
 
-    if (_shouldSkipIntroVideo) {
+    if (!SplashService.shouldPlayIntroVideo) {
       unawaited(SplashVideoModel.suppressIntro());
       _markComplete();
       return;
@@ -126,6 +122,9 @@ class SplashController extends ChangeNotifier {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
     _isComplete = true;
+    if (SplashService.shouldPlayIntroVideo) {
+      unawaited(SplashService.markSplashVideoSeen());
+    }
     notifyListeners();
   }
 
