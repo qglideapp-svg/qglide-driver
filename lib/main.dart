@@ -6,6 +6,7 @@ import 'package:image_picker_android/image_picker_android.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 
 import 'app_bootstrap.dart';
+import 'features/splash/splash_video_model.dart';
 import 'services/app_locale_service.dart';
 import 'services/app_tutorial_service.dart';
 import 'services/auth_service.dart';
@@ -28,6 +29,10 @@ Future<void> main() async {
   await AuthService.maintainSession();
   await AppTutorialService.loadFromDisk();
   await SplashService.loadFromDisk();
+
+  if (!SplashService.shouldPlayIntroVideo) {
+    await SplashVideoModel.suppressIntro();
+  }
 
   runApp(
     const ProviderScope(

@@ -105,6 +105,6 @@ class SplashVideoModel {
     }
 
     await controller.setLooping(false);
-    await controller.setVolume(1);
+    await controller.setVolume(0);
   }
 }

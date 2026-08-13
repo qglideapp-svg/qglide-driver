@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'auth_service.dart';
+
 /// Tracks whether the intro splash video has already been shown.
 class SplashService {
   SplashService._();
@@ -11,8 +13,9 @@ class SplashService {
 
   static bool get hasSeenSplashVideo => _hasSeenSplashVideo;
 
-  /// True only on the very first app open before the intro video has finished once.
-  static bool get shouldPlayIntroVideo => !_hasSeenSplashVideo;
+  /// True only on the very first app open for logged-out users.
+  static bool get shouldPlayIntroVideo =>
+      !_hasSeenSplashVideo && !AuthService.hasValidSession;
 
   static Future<void> loadFromDisk() async {
     if (_prefsUnavailable) return;

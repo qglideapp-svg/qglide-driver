@@ -53,7 +53,6 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
   Future<void> _tryFastStartForReturningUser() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
-    if (!SplashService.hasSeenSplashVideo) return;
     if (!AuthService.hasValidSession) return;
 
     await SplashVideoModel.suppressIntro();

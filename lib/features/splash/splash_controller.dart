@@ -68,6 +68,7 @@ class SplashController extends ChangeNotifier {
         _markComplete();
         return;
       }
+      await controller.setVolume(1);
       await controller.play();
     } catch (error) {
       _markComplete();
