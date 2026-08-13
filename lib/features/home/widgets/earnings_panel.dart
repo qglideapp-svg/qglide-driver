@@ -69,13 +69,7 @@ class _EarningsPanelState extends State<EarningsPanel> {
     final s = AppStringsScope.of(context);
     final wallet = widget.wallet;
     final dashboard = DashboardTheme.of(context);
-
-    if (widget.isLoading && wallet == null) {
-      return _EarningsRefreshScroll(
-        onRefresh: widget.onRefresh,
-        child: const _LazyEarningsPanel(),
-      );
-    }
+    final isWalletLoading = widget.isLoading && wallet == null;
 
     return _EarningsRefreshScroll(
       onRefresh: widget.onRefresh,
@@ -97,6 +91,7 @@ class _EarningsPanelState extends State<EarningsPanel> {
                   title: s.mainWalletBalance,
                   totalBalance: wallet?.primaryBalance ?? 0,
                   subtitle: s.mainWalletDescription,
+                  isLoading: isWalletLoading,
                   onToggleVisibility: () {
                     setState(() => _balanceVisible = !_balanceVisible);
                   },
@@ -127,6 +122,7 @@ class _EarningsPanelState extends State<EarningsPanel> {
                   mainBalance: wallet?.primaryBalance ?? 0,
                   commissionBalance: wallet?.commissionBalance ?? 0,
                   pendingWithdrawals: wallet?.pendingWithdrawals ?? 0,
+                  isLoading: isWalletLoading,
                 ),
               ],
             ),
@@ -202,6 +198,7 @@ class _BalanceHeader extends StatelessWidget {
     required this.totalBalance,
     required this.onToggleVisibility,
     this.subtitle,
+    this.isLoading = false,
   });
 
   final bool balanceVisible;
@@ -209,6 +206,7 @@ class _BalanceHeader extends StatelessWidget {
   final double totalBalance;
   final VoidCallback onToggleVisibility;
   final String? subtitle;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -258,11 +256,25 @@ class _BalanceHeader extends StatelessWidget {
           ),
         ),
         SizedBox(height: r.gap(4)),
-        Text(
-          balanceVisible ? formatQar(totalBalance) : s.hiddenBalanceFull,
-          textAlign: TextAlign.center,
-          style: balanceAmountTextStyle(r, dashboard.primaryText),
-        ),
+        isLoading
+            ? SizedBox(
+                height: r.sp(30).clamp(26.0, 34.0),
+                child: Center(
+                  child: SizedBox(
+                    width: r.sp(22).clamp(20.0, 24.0),
+                    height: r.sp(22).clamp(20.0, 24.0),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: dashboard.primaryText.withValues(alpha: 0.45),
+                    ),
+                  ),
+                ),
+              )
+            : Text(
+                balanceVisible ? formatQar(totalBalance) : s.hiddenBalanceFull,
+                textAlign: TextAlign.center,
+                style: balanceAmountTextStyle(r, dashboard.primaryText),
+              ),
         if (subtitle != null) ...[
           SizedBox(height: r.gap(8)),
           Text(
@@ -473,12 +485,14 @@ class _WalletBalanceGrid extends StatelessWidget {
     required this.mainBalance,
     required this.commissionBalance,
     required this.pendingWithdrawals,
+    this.isLoading = false,
   });
 
   final bool balanceVisible;
   final double mainBalance;
   final double commissionBalance;
   final double pendingWithdrawals;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -496,6 +510,7 @@ class _WalletBalanceGrid extends StatelessWidget {
                 iconAsset: AppConstants.verifiedBalanceIconAsset,
                 amount: mainBalance,
                 balanceVisible: balanceVisible,
+                isLoading: isLoading,
               ),
             ),
             SizedBox(width: gap),
@@ -505,11 +520,12 @@ class _WalletBalanceGrid extends StatelessWidget {
                 iconAsset: AppConstants.rawBalanceIconAsset,
                 amount: commissionBalance,
                 balanceVisible: balanceVisible,
+                isLoading: isLoading,
               ),
             ),
           ],
         ),
-        if (pendingWithdrawals > 0) ...[
+        if (!isLoading && pendingWithdrawals > 0.009) ...[
           SizedBox(height: gap),
           Row(
             children: [
@@ -537,12 +553,14 @@ class _WalletBalanceCard extends StatelessWidget {
     required this.iconAsset,
     required this.amount,
     required this.balanceVisible,
+    this.isLoading = false,
   });
 
   final String label;
   final String iconAsset;
   final double amount;
   final bool balanceVisible;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -592,17 +610,32 @@ class _WalletBalanceCard extends StatelessWidget {
                   ),
                 ),
                 SizedBox(height: r.gap(4)),
-                Text(
-                  balanceVisible ? formatQar(amount) : s.hiddenBalanceShort,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: AppFonts.satoshi,
-                    fontSize: r.sp(15).clamp(14.0, 16.0),
-                    fontWeight: FontWeight.w900,
-                    color: dashboard.primaryText,
-                  ),
-                ),
+                isLoading
+                    ? SizedBox(
+                        height: r.sp(15).clamp(14.0, 16.0),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: SizedBox(
+                            width: r.sp(14).clamp(12.0, 16.0),
+                            height: r.sp(14).clamp(12.0, 16.0),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: dashboard.primaryText.withValues(alpha: 0.35),
+                            ),
+                          ),
+                        ),
+                      )
+                    : Text(
+                        balanceVisible ? formatQar(amount) : s.hiddenBalanceShort,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: AppFonts.satoshi,
+                          fontSize: r.sp(15).clamp(14.0, 16.0),
+                          fontWeight: FontWeight.w900,
+                          color: dashboard.primaryText,
+                        ),
+                      ),
               ],
             ),
           ),

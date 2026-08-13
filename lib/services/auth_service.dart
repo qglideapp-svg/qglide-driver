@@ -76,6 +76,7 @@ class AuthService {
   static String? _refreshToken;
   static DateTime? _tokenExpiresAt;
   static var _onboardingCompleted = false;
+  static var shouldRefreshHomeWallet = false;
   static String? _referralCode;
   static var _referralActive = false;
   static var _prefsUnavailable = false;
@@ -2750,17 +2751,44 @@ class AuthService {
     final data = response['data'];
     if (data is! Map<String, dynamic>) return null;
 
-    final payload = unwrapAuthPayload(data);
-    final wallets = payload['wallets'];
-    if (wallets is Map<String, dynamic>) {
-      return DriverWalletBalance.fromJson(wallets);
+    final candidates = <Map<String, dynamic>>[];
+    void addCandidate(dynamic value) {
+      if (value is Map<String, dynamic>) {
+        candidates.add(value);
+      } else if (value is Map) {
+        candidates.add(Map<String, dynamic>.from(value));
+      }
     }
 
-    if (_hasWalletBalanceFields(payload)) {
-      return DriverWalletBalance.fromJson(payload);
+    final payload = unwrapAuthPayload(data);
+    addCandidate(payload);
+    addCandidate(payload['wallets']);
+    addCandidate(payload['wallet']);
+    addCandidate(payload['wallet_balance']);
+    addCandidate(data['wallets']);
+    addCandidate(data['wallet_balance']);
+
+    for (final candidate in candidates) {
+      final wallet = _parseWalletPayload(candidate);
+      if (wallet != null) return wallet;
     }
 
     return null;
+  }
+
+  static DriverWalletBalance? _parseWalletPayload(Map<String, dynamic> json) {
+    if (_hasWalletBalanceFields(json) || _looksLikeLegacyWalletPayload(json)) {
+      return DriverWalletBalance.fromJson(json);
+    }
+    return null;
+  }
+
+  static bool _looksLikeLegacyWalletPayload(Map<String, dynamic> json) {
+    return json.containsKey('balance') ||
+        json.containsKey('available_balance') ||
+        json.containsKey('raw_balance') ||
+        json.containsKey('verified_balance') ||
+        json.containsKey('spendable_balance');
   }
 
   static Future<Map<String, dynamic>> getWalletBalance({

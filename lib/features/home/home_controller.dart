@@ -1194,20 +1194,33 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> loadWalletBalance({bool retry = true}) async {
-    if (_isLoadingWalletBalance) return;
+    if (_isLoadingWalletBalance) {
+      await _waitForWalletBalanceLoad();
+      if (_walletBalance != null || !retry) return;
+    }
 
     _isLoadingWalletBalance = true;
     notifyListeners();
 
     try {
-      final attempts = retry ? 2 : 1;
-      for (var attempt = 0; attempt < attempts; attempt++) {
+      final maxAttempts = retry ? 5 : 1;
+      for (var attempt = 0; attempt < maxAttempts; attempt++) {
         if (attempt > 0) {
+          await AuthService.refreshSessionIfNeeded(force: attempt >= 2);
           await AuthService.maintainSession();
-          await Future<void>.delayed(const Duration(milliseconds: 500));
+          await Future<void>.delayed(
+            Duration(milliseconds: 400 + (attempt * attempt * 350)),
+          );
+        } else {
+          await AuthService.refreshSessionIfNeeded();
         }
 
         final response = await AuthService.getWalletBalance();
+        if (AuthService.isUnauthorizedResponse(response)) {
+          await AuthService.maintainSession();
+          continue;
+        }
+
         final wallet = AuthService.extractWalletBalance(response);
         if (wallet == null) continue;
 
@@ -1222,6 +1235,17 @@ class HomeController extends ChangeNotifier {
     } finally {
       _isLoadingWalletBalance = false;
       notifyListeners();
+    }
+  }
+
+  void resetWalletState() {
+    _walletBalance = null;
+    _hasLoadedEarnings = false;
+  }
+
+  void prepareForHomeEntry({required bool forceRefresh}) {
+    if (forceRefresh) {
+      resetWalletState();
     }
   }
 
@@ -1281,6 +1305,16 @@ class HomeController extends ChangeNotifier {
 
     if (_walletBalance == null) {
       await loadWalletBalance();
+    }
+
+    if (_walletBalance == null) {
+      unawaited(
+        Future<void>.delayed(const Duration(seconds: 2), () async {
+          if (_walletBalance == null) {
+            await loadWalletBalance();
+          }
+        }),
+      );
     }
 
     if (!_hasLoadedEarnings) {

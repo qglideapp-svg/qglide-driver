@@ -370,11 +370,17 @@ class DriverAuthNavigation {
       }
 
       if (replace) {
+        if (target.route == AppRoutes.home) {
+          AuthService.shouldRefreshHomeWallet = true;
+        }
         await Navigator.of(context).pushReplacementNamed(
           target.route,
           arguments: target.arguments,
         );
       } else {
+        if (target.route == AppRoutes.home) {
+          AuthService.shouldRefreshHomeWallet = true;
+        }
         await Navigator.of(context).pushNamed(
           target.route,
           arguments: target.arguments,

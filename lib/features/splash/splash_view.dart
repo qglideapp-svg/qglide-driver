@@ -162,6 +162,10 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
     if (!mounted) return;
 
+    if (target.route == AppRoutes.home) {
+      AuthService.shouldRefreshHomeWallet = true;
+    }
+
     ref.invalidate(splashControllerProvider);
 
     try {

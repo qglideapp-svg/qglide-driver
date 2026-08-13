@@ -87,6 +87,11 @@ class _HomeViewState extends ConsumerState<HomeView>
         if (!mounted) return;
 
         final controller = ref.read(homeControllerProvider);
+        final forceWalletRefresh = AuthService.shouldRefreshHomeWallet;
+        if (forceWalletRefresh) {
+          AuthService.shouldRefreshHomeWallet = false;
+        }
+        controller.prepareForHomeEntry(forceRefresh: forceWalletRefresh);
         await controller.processPendingRideNotificationHandlers();
         if (!mounted) return;
         await AuthService.maintainSession();
