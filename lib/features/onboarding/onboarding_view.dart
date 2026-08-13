@@ -11,7 +11,6 @@ import '../../shared/widgets/app_strings_scope.dart';
 import '../../core/providers/app_providers.dart';
 import '../../services/auth_service.dart';
 import '../../services/app_tutorial_service.dart';
-import '../splash/splash_video_model.dart';
 import 'onboarding_controller.dart';
 import 'onboarding_page_model.dart';
 import '../../routes/app_routes.dart';
@@ -27,12 +26,6 @@ class _OnboardingViewState extends ConsumerState<OnboardingView> {
   static const _footerHeight = 148.0;
 
   OnboardingController get _controller => ref.read(onboardingControllerProvider);
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(SplashVideoModel.suppressIntro());
-  }
 
   Future<void> _finishOnboarding() async {
     await AuthService.markOnboardingCompleted();

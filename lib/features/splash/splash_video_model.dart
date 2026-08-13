@@ -11,8 +11,11 @@ class SplashVideoModel {
   static VideoPlayerController? _controller;
   static Future<void>? _initializeFuture;
   static var _introSuppressed = false;
+  static var _introWasStarted = false;
 
   static bool get isIntroSuppressed => _introSuppressed;
+
+  static bool get introWasStarted => _introWasStarted;
 
   /// Mutes and disposes the intro video; blocks future playback this session.
   static Future<void> suppressIntro() async {
@@ -20,11 +23,18 @@ class SplashVideoModel {
     await stopAndDispose();
   }
 
+  /// Stops intro playback only when the splash video was started this session.
+  static Future<void> suppressIntroIfNeeded() async {
+    if (_introSuppressed || !_introWasStarted) return;
+    await suppressIntro();
+  }
+
   static Future<VideoPlayerController> beginLoad() {
     if (_introSuppressed) {
       throw StateError('Splash intro suppressed');
     }
 
+    _introWasStarted = true;
     _controller ??= VideoPlayerController.asset(
       AppConstants.splashVideoAsset,
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),

@@ -114,6 +114,7 @@ class HomeController extends ChangeNotifier {
   var _pendingNavigationCamera = false;
   var _mapSessionId = 0;
   DateTime? _lastMapSurfaceRefreshAt;
+  DateTime? _homeEntryAt;
   var _isInitializingHomeMap = false;
   var _mapSurfaceReady = false;
   DateTime? _lastNavigationCameraUpdate;
@@ -1056,6 +1057,9 @@ class HomeController extends ChangeNotifier {
       if (_isOnline || _isEnRouteForLocation) {
         startLocationUpdates();
       }
+      if (!_locationReady && !_isInitializingHomeMap) {
+        unawaited(initializeLocation());
+      }
       unawaited(PushNotificationService.registerTokenIfLoggedIn());
       return;
     }
@@ -1102,6 +1106,8 @@ class HomeController extends ChangeNotifier {
   /// Recreates the native map surface after iOS/Android destroys it in background.
   void refreshMapSurfaceOnResume() {
     if (hasAcceptedRide) return;
+    if (_mapController == null) return;
+    if (_isWithinHomeEntryGracePeriod) return;
 
     final now = DateTime.now();
     final last = _lastMapSurfaceRefreshAt;
@@ -1243,7 +1249,18 @@ class HomeController extends ChangeNotifier {
     _hasLoadedEarnings = false;
   }
 
+  void markHomeEntry() {
+    _homeEntryAt = DateTime.now();
+  }
+
+  bool get _isWithinHomeEntryGracePeriod {
+    final entry = _homeEntryAt;
+    if (entry == null) return false;
+    return DateTime.now().difference(entry) < const Duration(seconds: 10);
+  }
+
   void prepareForHomeEntry({required bool forceRefresh}) {
+    markHomeEntry();
     if (forceRefresh) {
       resetWalletState();
     }
@@ -2745,6 +2762,7 @@ class HomeController extends ChangeNotifier {
   }
 
   void detachMapController() {
+    if (_mapController == null) return;
     _mapController = null;
     _mapSurfaceReady = false;
     _mapSessionId++;

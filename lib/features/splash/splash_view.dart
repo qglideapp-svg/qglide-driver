@@ -81,7 +81,6 @@ class _SplashViewState extends ConsumerState<SplashView> {
   void dispose() {
     _startupFallbackTimer?.cancel();
     _splashSubscription?.close();
-    unawaited(SplashVideoModel.suppressIntro());
     super.dispose();
   }
 
@@ -133,13 +132,13 @@ class _SplashViewState extends ConsumerState<SplashView> {
       if (AuthService.hasValidSession) {
         await SplashService.markSplashVideoSeen();
       }
-    } else if (!SplashService.hasSeenSplashVideo) {
+    } else {
       final splashController = ref.read(splashControllerProvider);
       await splashController.stopPlayback();
       await SplashVideoModel.suppressIntro();
-      await SplashService.markSplashVideoSeen();
-    } else {
-      await SplashVideoModel.suppressIntro();
+      if (!SplashService.hasSeenSplashVideo) {
+        await SplashService.markSplashVideoSeen();
+      }
     }
 
     DriverNavigationTarget target;
@@ -166,8 +165,6 @@ class _SplashViewState extends ConsumerState<SplashView> {
       AuthService.shouldRefreshHomeWallet = true;
     }
 
-    ref.invalidate(splashControllerProvider);
-
     try {
       await Navigator.of(context).pushReplacementNamed(
         target.route,
@@ -176,6 +173,8 @@ class _SplashViewState extends ConsumerState<SplashView> {
     } catch (error) {
       if (!mounted) return;
       await Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+    } finally {
+      ref.invalidate(splashControllerProvider);
     }
   }
 

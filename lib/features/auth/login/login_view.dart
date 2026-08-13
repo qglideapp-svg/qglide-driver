@@ -14,7 +14,6 @@ import '../../../features/tutorial/tutorial_screen_helper.dart';
 import '../../../features/tutorial/tutorial_target.dart';
 import '../../../features/tutorial/tutorial_target_registry.dart';
 import '../../../services/push_notification_service.dart';
-import '../../../features/splash/splash_video_model.dart';
 import '../../../utils/driver_auth_navigation.dart';
 import '../widgets/auth_top_toast.dart';
 import '../widgets/auth_widgets.dart';
@@ -46,7 +45,6 @@ class _LoginViewState extends ConsumerState<LoginView>
   @override
   void initState() {
     super.initState();
-    unawaited(SplashVideoModel.suppressIntro());
     scheduleTutorialForRoute(
       state: this,
       route: AppRoutes.login,
@@ -89,10 +87,8 @@ class _LoginViewState extends ConsumerState<LoginView>
   }
 
   Future<void> _handleGoogleSignIn() async {
-    unawaited(SplashVideoModel.suppressIntro());
     final response = await _controller.signInWithGoogle(
       onAccountSelected: () {
-        unawaited(SplashVideoModel.suppressIntro());
         if (mounted) setState(() => _isSocialAuthenticating = true);
       },
     );
@@ -114,7 +110,6 @@ class _LoginViewState extends ConsumerState<LoginView>
   }
 
   Future<void> _handleAppleSignIn() async {
-    unawaited(SplashVideoModel.suppressIntro());
     if (mounted) setState(() => _isSocialAuthenticating = true);
 
     final response = await _controller.signInWithApple();

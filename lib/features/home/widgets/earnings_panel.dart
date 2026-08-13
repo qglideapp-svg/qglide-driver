@@ -115,11 +115,10 @@ class _EarningsPanelState extends State<EarningsPanel> {
                   ),
                 ],
                 SizedBox(height: r.gap(18)),
-                _SectionHeading(title: s.walletBalance),
+                _SectionHeading(title: s.commissionWallet),
                 SizedBox(height: r.gap(10)),
                 _WalletBalanceGrid(
                   balanceVisible: _balanceVisible,
-                  mainBalance: wallet?.primaryBalance ?? 0,
                   commissionBalance: wallet?.commissionBalance ?? 0,
                   pendingWithdrawals: wallet?.pendingWithdrawals ?? 0,
                   isLoading: isWalletLoading,
@@ -482,14 +481,12 @@ class _SectionHeading extends StatelessWidget {
 class _WalletBalanceGrid extends StatelessWidget {
   const _WalletBalanceGrid({
     required this.balanceVisible,
-    required this.mainBalance,
     required this.commissionBalance,
     required this.pendingWithdrawals,
     this.isLoading = false,
   });
 
   final bool balanceVisible;
-  final double mainBalance;
   final double commissionBalance;
   final double pendingWithdrawals;
   final bool isLoading;
@@ -506,16 +503,6 @@ class _WalletBalanceGrid extends StatelessWidget {
           children: [
             Expanded(
               child: _WalletBalanceCard(
-                label: s.mainWalletBalance,
-                iconAsset: AppConstants.verifiedBalanceIconAsset,
-                amount: mainBalance,
-                balanceVisible: balanceVisible,
-                isLoading: isLoading,
-              ),
-            ),
-            SizedBox(width: gap),
-            Expanded(
-              child: _WalletBalanceCard(
                 label: s.commissionWallet,
                 iconAsset: AppConstants.rawBalanceIconAsset,
                 amount: commissionBalance,
@@ -523,6 +510,8 @@ class _WalletBalanceGrid extends StatelessWidget {
                 isLoading: isLoading,
               ),
             ),
+            SizedBox(width: gap),
+            const Expanded(child: SizedBox.shrink()),
           ],
         ),
         if (!isLoading && pendingWithdrawals > 0.009) ...[
@@ -685,7 +674,22 @@ class _CompletedTripsSection extends StatelessWidget {
           child: _SectionHeading(title: s.completedTrips),
         ),
         if (isLoading && trips.isEmpty)
-          const _LazyCompletedTripsList()
+          Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: r.gap(14),
+              vertical: r.h(48),
+            ),
+            child: Center(
+              child: SizedBox(
+                width: r.w(28).clamp(24.0, 32.0),
+                height: r.w(28).clamp(24.0, 32.0),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.loginButton.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+          )
         else if (trips.isEmpty)
           Padding(
             padding: EdgeInsets.symmetric(
@@ -992,368 +996,6 @@ class _LazyBalanceHeaderState extends State<LazyBalanceHeader>
           ],
         );
       },
-    );
-  }
-}
-
-class _LazyEarningsPanel extends StatefulWidget {
-  const _LazyEarningsPanel();
-
-  @override
-  State<_LazyEarningsPanel> createState() => _LazyEarningsPanelState();
-}
-
-class _LazyEarningsPanelState extends State<_LazyEarningsPanel>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1100),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final r = context.responsive;
-    final dashboard = DashboardTheme.of(context);
-
-    return AnimatedBuilder(
-      animation: _pulseController,
-      builder: (context, child) {
-        final opacity = 0.35 + (_pulseController.value * 0.35);
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                r.gap(16),
-                0,
-                r.gap(16),
-                r.gap(16),
-              ),
-              child: Column(
-                children: [
-                  _LazyPlaceholder(
-                    opacity: opacity,
-                    color: dashboard.secondaryText,
-                    height: r.sp(13).clamp(12.0, 14.0),
-                    width: r.w(96).clamp(80.0, 110.0),
-                  ),
-                  SizedBox(height: r.gap(10)),
-                  _LazyPlaceholder(
-                    opacity: opacity,
-                    color: dashboard.primaryText,
-                    height: r.sp(30).clamp(26.0, 34.0),
-                    width: r.w(180).clamp(150.0, 220.0),
-                    borderRadius: r.gap(8),
-                  ),
-                  SizedBox(height: r.gap(18)),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _LazyPlaceholder(
-                        opacity: opacity,
-                        color: dashboard.card,
-                        height: r.w(64).clamp(56.0, 72.0),
-                        width: r.w(64).clamp(56.0, 72.0),
-                        borderRadius: r.borderRadiusMd,
-                      ),
-                      SizedBox(width: r.gap(12)),
-                      _LazyPlaceholder(
-                        opacity: opacity,
-                        color: dashboard.card,
-                        height: r.w(64).clamp(56.0, 72.0),
-                        width: r.w(64).clamp(56.0, 72.0),
-                        borderRadius: r.borderRadiusMd,
-                      ),
-                      SizedBox(width: r.gap(12)),
-                      _LazyPlaceholder(
-                        opacity: opacity,
-                        color: dashboard.card,
-                        height: r.w(64).clamp(56.0, 72.0),
-                        width: r.w(64).clamp(56.0, 72.0),
-                        borderRadius: r.borderRadiusMd,
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: r.gap(16)),
-                  const SignupPerformanceBonusSkeleton(),
-                  SizedBox(height: r.gap(18)),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: _LazyPlaceholder(
-                      opacity: opacity,
-                      color: dashboard.primaryText,
-                      height: r.sp(16).clamp(15.0, 18.0),
-                      width: r.w(120).clamp(100.0, 140.0),
-                      borderRadius: r.gap(6),
-                    ),
-                  ),
-                  SizedBox(height: r.gap(12)),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _LazyWalletCardPlaceholder(
-                          opacity: opacity,
-                          dashboard: dashboard,
-                          r: r,
-                        ),
-                      ),
-                      SizedBox(width: r.gap(10)),
-                      Expanded(
-                        child: _LazyWalletCardPlaceholder(
-                          opacity: opacity,
-                          dashboard: dashboard,
-                          r: r,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            ClipRRect(
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(r.borderRadiusLg),
-                topRight: Radius.circular(r.borderRadiusLg),
-              ),
-              child: ColoredBox(
-                color: dashboard.completedTripsBg,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        r.gap(14),
-                        r.gap(16),
-                        r.gap(14),
-                        r.gap(10),
-                      ),
-                      child: _LazyPlaceholder(
-                        opacity: opacity,
-                        color: dashboard.primaryText,
-                        height: r.sp(16).clamp(15.0, 18.0),
-                        width: r.w(140).clamp(120.0, 160.0),
-                        borderRadius: r.gap(6),
-                      ),
-                    ),
-                    const _LazyCompletedTripsList(),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _LazyWalletCardPlaceholder extends StatelessWidget {
-  const _LazyWalletCardPlaceholder({
-    required this.opacity,
-    required this.dashboard,
-    required this.r,
-  });
-
-  final double opacity;
-  final DashboardTheme dashboard;
-  final AppResponsive r;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(r.gap(10)),
-      decoration: BoxDecoration(
-        color: dashboard.walletCard,
-        borderRadius: BorderRadius.circular(r.gap(12)),
-        border: Border.all(color: dashboard.walletCardBorder),
-      ),
-      child: Row(
-        children: [
-          _LazyPlaceholder(
-            opacity: opacity,
-            color: dashboard.secondaryText,
-            height: r.w(32).clamp(28.0, 36.0),
-            width: r.w(32).clamp(28.0, 36.0),
-            borderRadius: r.gap(8),
-          ),
-          SizedBox(width: r.gap(8)),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _LazyPlaceholder(
-                  opacity: opacity,
-                  color: dashboard.secondaryText,
-                  height: r.sp(12).clamp(11.0, 13.0),
-                  width: double.infinity,
-                  borderRadius: r.gap(4),
-                ),
-                SizedBox(height: r.gap(6)),
-                _LazyPlaceholder(
-                  opacity: opacity,
-                  color: dashboard.primaryText,
-                  height: r.sp(15).clamp(14.0, 16.0),
-                  width: r.w(72).clamp(60.0, 84.0),
-                  borderRadius: r.gap(4),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LazyCompletedTripsList extends StatefulWidget {
-  const _LazyCompletedTripsList();
-
-  @override
-  State<_LazyCompletedTripsList> createState() =>
-      _LazyCompletedTripsListState();
-}
-
-class _LazyCompletedTripsListState extends State<_LazyCompletedTripsList>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1100),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final r = context.responsive;
-    final dashboard = DashboardTheme.of(context);
-
-    return AnimatedBuilder(
-      animation: _pulseController,
-      builder: (context, child) {
-        final opacity = 0.35 + (_pulseController.value * 0.35);
-
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            r.gap(14),
-            0,
-            r.gap(14),
-            r.gap(8),
-          ),
-          child: Column(
-            children: List.generate(4, (index) {
-              return Padding(
-                padding: EdgeInsets.only(bottom: index == 3 ? 0 : r.gap(8)),
-                child: _LazyTripRowPlaceholder(
-                  opacity: opacity,
-                  dashboard: dashboard,
-                  r: r,
-                ),
-              );
-            }),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _LazyTripRowPlaceholder extends StatelessWidget {
-  const _LazyTripRowPlaceholder({
-    required this.opacity,
-    required this.dashboard,
-    required this.r,
-  });
-
-  final double opacity;
-  final DashboardTheme dashboard;
-  final AppResponsive r;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(r.gap(12)),
-      decoration: BoxDecoration(
-        color: dashboard.card,
-        borderRadius: BorderRadius.circular(r.gap(12)),
-      ),
-      child: Row(
-        children: [
-          _LazyPlaceholder(
-            opacity: opacity,
-            color: dashboard.secondaryText,
-            height: r.w(44).clamp(40.0, 48.0),
-            width: r.w(44).clamp(40.0, 48.0),
-            borderRadius: r.gap(10),
-          ),
-          SizedBox(width: r.gap(12)),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _LazyPlaceholder(
-                  opacity: opacity,
-                  color: dashboard.primaryText,
-                  height: r.sp(16).clamp(15.0, 18.0),
-                  width: double.infinity,
-                  borderRadius: r.gap(4),
-                ),
-                SizedBox(height: r.gap(6)),
-                _LazyPlaceholder(
-                  opacity: opacity,
-                  color: dashboard.secondaryText,
-                  height: r.sp(13).clamp(12.0, 14.0),
-                  width: r.w(100).clamp(84.0, 120.0),
-                  borderRadius: r.gap(4),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(width: r.gap(12)),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _LazyPlaceholder(
-                opacity: opacity,
-                color: const Color(0xFF049327),
-                height: r.sp(16).clamp(15.0, 18.0),
-                width: r.w(72).clamp(60.0, 84.0),
-                borderRadius: r.gap(4),
-              ),
-              SizedBox(height: r.gap(6)),
-              _LazyPlaceholder(
-                opacity: opacity,
-                color: dashboard.secondaryText,
-                height: r.sp(13).clamp(12.0, 14.0),
-                width: r.w(40).clamp(34.0, 48.0),
-                borderRadius: r.gap(4),
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }

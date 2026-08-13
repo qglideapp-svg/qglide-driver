@@ -42,7 +42,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         AdPlacementCache.instance.start();
-        unawaited(SplashVideoModel.suppressIntro());
+        unawaited(SplashVideoModel.suppressIntroIfNeeded());
         unawaited(PushNotificationService.stopAllRideRequestAlerts(
           rideId: PushNotificationService.lastKnownRideRequestId,
         ));
@@ -55,7 +55,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
-        unawaited(SplashVideoModel.suppressIntro());
+        unawaited(SplashVideoModel.suppressIntroIfNeeded());
         AdPlacementCache.instance.stop();
     }
   }
