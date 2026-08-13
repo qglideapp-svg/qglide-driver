@@ -1230,17 +1230,42 @@ class HomeController extends ChangeNotifier {
         final wallet = AuthService.extractWalletBalance(response);
         if (wallet == null) continue;
 
-        _walletBalance = wallet;
-        final today = wallet.today;
-        if (today != null) {
-          _todayEarningsAmount = today.totalEarnings;
-          _todayRidesDisplay = today.ridesCompleted.toString();
-        }
+        _applyWalletBalance(wallet);
         return;
       }
     } finally {
       _isLoadingWalletBalance = false;
       notifyListeners();
+    }
+  }
+
+  void _applyWalletBalance(DriverWalletBalance wallet) {
+    _walletBalance = wallet;
+    final today = wallet.today;
+    if (today != null) {
+      _todayEarningsAmount = today.totalEarnings;
+      _todayRidesDisplay = today.ridesCompleted.toString();
+    }
+  }
+
+  void scheduleWalletBalanceRecovery() {
+    unawaited(_recoverWalletBalanceAfterAuth());
+  }
+
+  Future<void> _recoverWalletBalanceAfterAuth() async {
+    const delays = [
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+      Duration(seconds: 6),
+      Duration(seconds: 10),
+    ];
+
+    for (final delay in delays) {
+      if (_walletBalance != null) return;
+      await Future<void>.delayed(delay);
+      if (_walletBalance != null) return;
+      await loadWalletBalance();
+      if (_walletBalance != null) return;
     }
   }
 
@@ -1263,6 +1288,11 @@ class HomeController extends ChangeNotifier {
     markHomeEntry();
     if (forceRefresh) {
       resetWalletState();
+    }
+
+    final prefetched = AuthService.takePrefetchedWalletBalance();
+    if (prefetched != null) {
+      _applyWalletBalance(prefetched);
     }
   }
 

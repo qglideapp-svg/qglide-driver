@@ -372,6 +372,7 @@ class DriverAuthNavigation {
       if (replace) {
         if (target.route == AppRoutes.home) {
           AuthService.shouldRefreshHomeWallet = true;
+          await AuthService.prefetchWalletBalanceForHome();
         }
         await Navigator.of(context).pushReplacementNamed(
           target.route,
@@ -380,6 +381,7 @@ class DriverAuthNavigation {
       } else {
         if (target.route == AppRoutes.home) {
           AuthService.shouldRefreshHomeWallet = true;
+          await AuthService.prefetchWalletBalanceForHome();
         }
         await Navigator.of(context).pushNamed(
           target.route,

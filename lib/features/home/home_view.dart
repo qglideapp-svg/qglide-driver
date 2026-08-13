@@ -84,11 +84,13 @@ class _HomeViewState extends ConsumerState<HomeView>
       Future(() async {
         if (!mounted) return;
 
-        final controller = ref.read(homeControllerProvider);
         final forceWalletRefresh = AuthService.shouldRefreshHomeWallet;
         if (forceWalletRefresh) {
           AuthService.shouldRefreshHomeWallet = false;
+          ref.invalidate(homeControllerProvider);
         }
+
+        final controller = ref.read(homeControllerProvider);
         controller.prepareForHomeEntry(forceRefresh: forceWalletRefresh);
         await controller.processPendingRideNotificationHandlers();
         if (!mounted) return;
@@ -99,6 +101,9 @@ class _HomeViewState extends ConsumerState<HomeView>
           controller.loadWalletBalance(),
         ]);
         if (!mounted) return;
+        if (controller.walletBalance == null) {
+          controller.scheduleWalletBalanceRecovery();
+        }
         if (!controller.locationReady) {
           await controller.initializeLocation();
         }

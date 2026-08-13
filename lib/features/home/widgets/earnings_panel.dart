@@ -115,10 +115,11 @@ class _EarningsPanelState extends State<EarningsPanel> {
                   ),
                 ],
                 SizedBox(height: r.gap(18)),
-                _SectionHeading(title: s.commissionWallet),
+                _SectionHeading(title: s.walletBalance),
                 SizedBox(height: r.gap(10)),
                 _WalletBalanceGrid(
                   balanceVisible: _balanceVisible,
+                  mainBalance: wallet?.primaryBalance ?? 0,
                   commissionBalance: wallet?.commissionBalance ?? 0,
                   pendingWithdrawals: wallet?.pendingWithdrawals ?? 0,
                   isLoading: isWalletLoading,
@@ -481,12 +482,14 @@ class _SectionHeading extends StatelessWidget {
 class _WalletBalanceGrid extends StatelessWidget {
   const _WalletBalanceGrid({
     required this.balanceVisible,
+    required this.mainBalance,
     required this.commissionBalance,
     required this.pendingWithdrawals,
     this.isLoading = false,
   });
 
   final bool balanceVisible;
+  final double mainBalance;
   final double commissionBalance;
   final double pendingWithdrawals;
   final bool isLoading;
@@ -503,6 +506,16 @@ class _WalletBalanceGrid extends StatelessWidget {
           children: [
             Expanded(
               child: _WalletBalanceCard(
+                label: s.mainWalletBalance,
+                iconAsset: AppConstants.verifiedBalanceIconAsset,
+                amount: mainBalance,
+                balanceVisible: balanceVisible,
+                isLoading: isLoading,
+              ),
+            ),
+            SizedBox(width: gap),
+            Expanded(
+              child: _WalletBalanceCard(
                 label: s.commissionWallet,
                 iconAsset: AppConstants.rawBalanceIconAsset,
                 amount: commissionBalance,
@@ -510,8 +523,6 @@ class _WalletBalanceGrid extends StatelessWidget {
                 isLoading: isLoading,
               ),
             ),
-            SizedBox(width: gap),
-            const Expanded(child: SizedBox.shrink()),
           ],
         ),
         if (!isLoading && pendingWithdrawals > 0.009) ...[

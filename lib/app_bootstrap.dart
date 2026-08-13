@@ -66,6 +66,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
     _logPhase('fast_start_home');
     AuthService.shouldRefreshHomeWallet = true;
+    await AuthService.prefetchWalletBalanceForHome();
     StartupNavigationTracker.markNavigated();
     await nav.pushReplacementNamed(target.route, arguments: target.arguments);
     if (AuthService.hasValidSession) {

@@ -77,6 +77,7 @@ class AuthService {
   static DateTime? _tokenExpiresAt;
   static var _onboardingCompleted = false;
   static var shouldRefreshHomeWallet = false;
+  static DriverWalletBalance? _prefetchedWalletBalance;
   static String? _referralCode;
   static var _referralActive = false;
   static var _prefsUnavailable = false;
@@ -2789,6 +2790,45 @@ class AuthService {
         json.containsKey('raw_balance') ||
         json.containsKey('verified_balance') ||
         json.containsKey('spendable_balance');
+  }
+
+  /// Returns and clears any wallet prefetched before navigating to home.
+  static DriverWalletBalance? takePrefetchedWalletBalance() {
+    final wallet = _prefetchedWalletBalance;
+    _prefetchedWalletBalance = null;
+    return wallet;
+  }
+
+  /// Loads wallet data before home mounts so first-time login shows balances immediately.
+  static Future<DriverWalletBalance?> prefetchWalletBalanceForHome({
+    int maxAttempts = 6,
+  }) async {
+    _prefetchedWalletBalance = null;
+
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        await maintainSession();
+        await Future<void>.delayed(
+          Duration(milliseconds: 500 + (attempt * attempt * 400)),
+        );
+      } else {
+        await refreshSessionIfNeeded(force: true);
+      }
+
+      final response = await getWalletBalance();
+      if (isUnauthorizedResponse(response)) {
+        await maintainSession();
+        continue;
+      }
+
+      final wallet = extractWalletBalance(response);
+      if (wallet != null) {
+        _prefetchedWalletBalance = wallet;
+        return wallet;
+      }
+    }
+
+    return null;
   }
 
   static Future<Map<String, dynamic>> getWalletBalance({

@@ -177,6 +177,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
     if (target.route == AppRoutes.home) {
       AuthService.shouldRefreshHomeWallet = true;
+      await AuthService.prefetchWalletBalanceForHome();
     }
 
     try {
