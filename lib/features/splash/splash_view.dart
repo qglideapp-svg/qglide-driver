@@ -6,7 +6,9 @@ import 'package:video_player/video_player.dart';
 
 import '../../app_bootstrap.dart';
 import '../../core/providers/app_providers.dart';
+import '../../config/app_constants.dart';
 import '../../routes/app_routes.dart';
+import '../../services/app_update_service.dart';
 import '../../services/auth_service.dart';
 import '../../utils/driver_auth_navigation.dart';
 import '../../utils/driver_navigation_target.dart';
@@ -39,35 +41,68 @@ class _SplashViewState extends ConsumerState<SplashView> {
     super.initState();
     _showIntroVideo = SplashService.shouldPlayIntroVideo;
     _navigationTargetFuture = _resolveNavigationTarget();
+    AppUpdateService.placementNotifier.addListener(_onForceUpdateStateChanged);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_showIntroVideo) {
+        _beginIntroVideo();
+      }
+      unawaited(_prepareSplashNavigation());
+    });
+  }
+
+  void _beginIntroVideo() {
+    _splashSubscription ??= ref.listenManual(
+      splashControllerProvider,
+      (previous, next) {
+        if (next.isComplete) {
+          _maybeScheduleNavigation();
+        }
+      },
+    );
+    unawaited(ref.read(splashControllerProvider).initialize());
+  }
+
+  Future<void> _prepareSplashNavigation() async {
+    await AppUpdateService.waitUntilReady();
+    if (!mounted) return;
+
+    if (AppUpdateService.isBlocking) return;
 
     if (!_showIntroVideo) {
       unawaited(_startReturningUserSplash());
-      _startupFallbackTimer = Timer(_returningUserMaxWait, () {
+      _startupFallbackTimer ??= Timer(_returningUserMaxWait, () {
         if (!mounted || _hasNavigated) return;
-        _scheduleNavigation();
+        _maybeScheduleNavigation();
       });
       return;
     }
 
-    _startupFallbackTimer = Timer(const Duration(seconds: 15), () {
-      if (!mounted || _hasNavigated) return;
-      _scheduleNavigation();
-    });
+    _startupFallbackTimer ??= Timer(
+      AppConstants.splashIntroMaxDuration + const Duration(seconds: 5),
+      () {
+        if (!mounted || _hasNavigated) return;
+        _maybeScheduleNavigation();
+      },
+    );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+    _maybeScheduleNavigation();
+  }
 
-      _splashSubscription = ref.listenManual(
-        splashControllerProvider,
-        (previous, next) {
-          if (next.isComplete) {
-            _scheduleNavigation();
-          }
-        },
-      );
+  void _onForceUpdateStateChanged() {
+    if (!mounted || _hasNavigated || AppUpdateService.isBlocking) return;
+    _maybeScheduleNavigation();
+  }
 
-      unawaited(ref.read(splashControllerProvider).initialize());
-    });
+  void _maybeScheduleNavigation() {
+    if (_hasNavigated || !mounted || AppUpdateService.isBlocking) return;
+
+    if (_showIntroVideo) {
+      final splash = ref.read(splashControllerProvider);
+      if (!splash.isComplete) return;
+    }
+
+    _scheduleNavigation();
   }
 
   Future<void> _startReturningUserSplash() async {
@@ -89,14 +124,15 @@ class _SplashViewState extends ConsumerState<SplashView> {
     }
 
     if (!mounted || _hasNavigated) return;
-    _scheduleNavigation();
+    _maybeScheduleNavigation();
   }
 
   @override
   void dispose() {
+    AppUpdateService.placementNotifier.removeListener(_onForceUpdateStateChanged);
     _startupFallbackTimer?.cancel();
     _splashSubscription?.close();
-    unawaited(SplashVideoModel.suppressIntro());
+    unawaited(SplashVideoModel.suppressIntroIfNeeded());
     super.dispose();
   }
 
@@ -136,6 +172,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
   void _scheduleNavigation() {
     if (_hasNavigated || !mounted) return;
+    if (AppUpdateService.isBlocking) return;
     _hasNavigated = true;
     _startupFallbackTimer?.cancel();
     StartupNavigationTracker.markNavigated();
@@ -143,16 +180,10 @@ class _SplashViewState extends ConsumerState<SplashView> {
   }
 
   Future<void> _navigateAfterSplash() async {
-    if (!_showIntroVideo) {
-      await SplashVideoModel.suppressIntro();
-      if (AuthService.hasValidSession) {
-        await SplashService.markSplashVideoSeen();
-      }
+    if (_showIntroVideo) {
+      await ref.read(splashControllerProvider).teardownVideo();
     } else {
-      final splashController = ref.read(splashControllerProvider);
-      await splashController.stopPlayback();
       await SplashVideoModel.suppressIntro();
-      await SplashService.markSplashVideoSeen();
     }
 
     DriverNavigationTarget target;
@@ -175,12 +206,18 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
     if (!mounted) return;
 
+    if (AppUpdateService.isBlocking) {
+      _hasNavigated = false;
+      return;
+    }
+
     if (target.route == AppRoutes.home) {
       AuthService.shouldRefreshHomeWallet = true;
       await AuthService.prefetchWalletBalanceForHome();
     }
 
     try {
+      if (!mounted) return;
       await Navigator.of(context).pushReplacementNamed(
         target.route,
         arguments: target.arguments,
@@ -206,7 +243,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
     if (controller.isComplete) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scheduleNavigation();
+        _maybeScheduleNavigation();
       });
     }
 
@@ -215,12 +252,12 @@ class _SplashViewState extends ConsumerState<SplashView> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (!controller.isVideoReady || controller.isComplete)
-            const _SplashBrandLoader(),
-          if (controller.hasVideoController &&
-              controller.isVideoReady &&
-              !controller.isComplete)
-            _SplashVideoPlayer(controller: controller.videoController!),
+          const ColoredBox(color: Colors.black),
+          if (controller.canRenderVideo)
+            _SplashVideoPlayer(
+              key: ValueKey(controller.videoController),
+              controller: controller.videoController!,
+            ),
         ],
       ),
     );
@@ -241,25 +278,94 @@ class _SplashBrandLoader extends StatelessWidget {
   }
 }
 
-class _SplashVideoPlayer extends StatelessWidget {
-  const _SplashVideoPlayer({required this.controller});
+class _SplashVideoPlayer extends StatefulWidget {
+  const _SplashVideoPlayer({
+    super.key,
+    required this.controller,
+  });
 
   final VideoPlayerController controller;
 
   @override
-  Widget build(BuildContext context) {
-    final value = controller.value;
-    final width = value.size.width > 0 ? value.size.width : 1080.0;
-    final height = value.size.height > 0 ? value.size.height : 1920.0;
+  State<_SplashVideoPlayer> createState() => _SplashVideoPlayerState();
+}
 
+class _SplashVideoPlayerState extends State<_SplashVideoPlayer> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onVideoTick);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SplashVideoPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onVideoTick);
+      widget.controller.addListener(_onVideoTick);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onVideoTick);
+    super.dispose();
+  }
+
+  void _onVideoTick() {
+    if (!mounted ||
+        SplashVideoModel.isIntroSuppressed ||
+        !SplashVideoModel.hasLiveController) {
+      return;
+    }
+    setState(() {});
+  }
+
+  bool _canBuildPlayer() {
+    if (SplashVideoModel.isIntroSuppressed || !SplashVideoModel.hasLiveController) {
+      return false;
+    }
+    try {
+      return widget.controller.value.isInitialized;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_canBuildPlayer()) {
+      return const SizedBox.shrink();
+    }
+
+    final value = widget.controller.value;
+    final videoWidth = value.size.width;
+    final videoHeight = value.size.height;
+    if (videoWidth > 0 && videoHeight > 0) {
+      return SizedBox.expand(
+        child: ClipRect(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
+            child: SizedBox(
+              width: videoWidth,
+              height: videoHeight,
+              child: VideoPlayer(widget.controller),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final aspectRatio = value.aspectRatio > 0 ? value.aspectRatio : 9 / 16;
     return SizedBox.expand(
-      child: FittedBox(
-        fit: BoxFit.cover,
-        clipBehavior: Clip.hardEdge,
-        child: SizedBox(
-          width: width,
-          height: height,
-          child: VideoPlayer(controller),
+      child: ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: AspectRatio(
+            aspectRatio: aspectRatio,
+            child: VideoPlayer(widget.controller),
+          ),
         ),
       ),
     );

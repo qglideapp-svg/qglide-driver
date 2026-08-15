@@ -53,6 +53,7 @@ class RideRequestActionActivity : Activity() {
         when (action) {
             RideRequestNotifications.ACTION_ACCEPT -> {
                 Log.d(TAG, "Accept tapped for ride $rideId")
+                RideResponseApi.respond(this, rideId, "accept")
                 stashPendingAction(RideRequestNotifications.ACTION_ACCEPT, payload)
                 setOpenHomeFlag()
                 launchMainActivity(rideId, RideRequestNotifications.ACTION_ACCEPT)

@@ -7,6 +7,7 @@ import '../../../config/app_fonts.dart';
 import '../../../config/app_responsive.dart';
 import '../../../config/dashboard_theme.dart';
 import '../../../services/auth_service.dart';
+import '../../../shared/widgets/app_strings_scope.dart';
 import '../../../shared/widgets/responsive_screen_shell.dart';
 import '../models/driver_ride_details.dart';
 
@@ -110,6 +111,7 @@ class DriverRideDetailsContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
+    final s = AppStringsScope.of(context);
     final dashboard = DashboardTheme.of(context);
 
     return Column(
@@ -117,7 +119,7 @@ class DriverRideDetailsContent extends StatelessWidget {
       children: [
         if (showTitle) ...[
           Text(
-            'Details',
+            s.tripDetails,
             style: TextStyle(
               fontFamily: AppFonts.satoshi,
               fontSize: r.sp(27).clamp(24.0, 30.0),
@@ -148,6 +150,11 @@ class DriverRideDetailsContent extends StatelessWidget {
               label: 'Total Amount',
               value: details.amountDisplay,
             ),
+            if (details.isCashPayment)
+              RideDetailsRow(
+                label: s.paymentMethod,
+                value: s.cashPayment,
+              ),
           ],
         ),
         ResponsiveGap(14),

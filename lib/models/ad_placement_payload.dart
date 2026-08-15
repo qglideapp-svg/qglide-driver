@@ -1,5 +1,11 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+
+import '../config/app_constants.dart';
 import '../config/app_strings.dart';
 import '../services/app_locale_service.dart';
+
 class AdPlacementPayload {
   const AdPlacementPayload({
     required this.showToAllUsers,
@@ -8,6 +14,8 @@ class AdPlacementPayload {
     required this.creativeImageUrl,
     required this.buttonLabel,
     required this.deepLink,
+    required this.androidLink,
+    required this.iosLink,
     required this.updatedAt,
   });
 
@@ -17,6 +25,8 @@ class AdPlacementPayload {
   final String creativeImageUrl;
   final String buttonLabel;
   final String deepLink;
+  final String androidLink;
+  final String iosLink;
   final String updatedAt;
 
   bool contentEquals(AdPlacementPayload? other) {
@@ -27,10 +37,34 @@ class AdPlacementPayload {
         creativeImageUrl == other.creativeImageUrl &&
         buttonLabel == other.buttonLabel &&
         deepLink == other.deepLink &&
+        androidLink == other.androidLink &&
+        iosLink == other.iosLink &&
         updatedAt == other.updatedAt;
   }
 
-  static AdPlacementPayload? fromApiResponse(Map<String, dynamic> result) {
+  String resolveLinkForPlatform() {
+    if (!kIsWeb && Platform.isIOS) {
+      if (iosLink.isNotEmpty) return iosLink;
+      if (deepLink.isNotEmpty) return deepLink;
+      return AppConstants.iosAppStoreUrl;
+    }
+
+    if (!kIsWeb && Platform.isAndroid) {
+      if (androidLink.isNotEmpty) return androidLink;
+      if (deepLink.isNotEmpty) return deepLink;
+      return AppConstants.androidPlayStoreUrl;
+    }
+
+    if (androidLink.isNotEmpty) return androidLink;
+    if (iosLink.isNotEmpty) return iosLink;
+    if (deepLink.isNotEmpty) return deepLink;
+    return AppConstants.androidPlayStoreUrl;
+  }
+
+  static AdPlacementPayload? fromApiResponse(
+    Map<String, dynamic> result, {
+    bool requireShowToAllUsers = false,
+  }) {
     if (result['success'] != true) return null;
 
     final root = result['data'];
@@ -40,6 +74,10 @@ class AdPlacementPayload {
     final placement = rootMap['placement'];
     if (placement is! Map) return null;
     final placementMap = Map<String, dynamic>.from(placement);
+
+    if (requireShowToAllUsers && placementMap['show_to_all_users'] != true) {
+      return null;
+    }
 
     final isArabic = AppLocaleService.instance.isArabic;
     var headline = _localizedField(
@@ -71,6 +109,8 @@ class AdPlacementPayload {
           (placementMap['creative_image_url'] ?? '').toString().trim(),
       buttonLabel: buttonLabelRaw.isEmpty ? 'Learn more' : buttonLabelRaw,
       deepLink: (placementMap['deep_link'] ?? '').toString().trim(),
+      androidLink: (placementMap['android_link'] ?? '').toString().trim(),
+      iosLink: (placementMap['ios_link'] ?? '').toString().trim(),
       updatedAt: (placementMap['updated_at'] ?? '').toString().trim(),
     );
   }
@@ -109,4 +149,30 @@ class AdPlacementPayload {
   }
 
   bool get shouldShowForCurrentUser => showToAllUsers;
+
+  /// Force-update modal: block only when this platform has its store link.
+  bool get shouldShowForceUpdateOnCurrentPlatform {
+    if (kIsWeb) return false;
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return androidLink.isNotEmpty;
+      case TargetPlatform.iOS:
+        return iosLink.isNotEmpty;
+      default:
+        return false;
+    }
+  }
+
+  /// Store URL for force-update on the current platform (no deep_link fallback).
+  String? forceUpdateLinkForCurrentPlatform() {
+    if (kIsWeb) return null;
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.iOS:
+        return iosLink.isNotEmpty ? iosLink : null;
+      case TargetPlatform.android:
+        return androidLink.isNotEmpty ? androidLink : null;
+      default:
+        return null;
+    }
+  }
 }

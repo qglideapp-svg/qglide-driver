@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../config/app_constants.dart';
 import '../../services/splash_service.dart';
 import 'splash_video_model.dart';
 
@@ -22,6 +24,12 @@ class SplashController extends ChangeNotifier {
       _videoController != null &&
       _videoController!.value.isInitialized;
 
+  bool get canRenderVideo =>
+      hasVideoController &&
+      isVideoReady &&
+      !_isComplete &&
+      SplashVideoModel.hasLiveController;
+
   bool get isComplete => _isComplete;
 
   Future<void> initialize() async {
@@ -39,13 +47,15 @@ class SplashController extends ChangeNotifier {
     }
 
     _fallbackTimer?.cancel();
-    _fallbackTimer = Timer(const Duration(seconds: 12), _markComplete);
+    _fallbackTimer = Timer(
+      AppConstants.splashIntroMaxDuration + const Duration(seconds: 4),
+      _markComplete,
+    );
 
     try {
       final controller = await SplashVideoModel.beginLoad();
       if (_disposed) {
-        await controller.dispose();
-        SplashVideoModel.reset();
+        await SplashVideoModel.stopAndDispose();
         return;
       }
 
@@ -63,6 +73,7 @@ class SplashController extends ChangeNotifier {
         return;
       }
 
+      notifyListeners();
       _scheduleFallbackTimer(controller.value.duration);
       if (SplashVideoModel.isIntroSuppressed) {
         _markComplete();
@@ -70,6 +81,7 @@ class SplashController extends ChangeNotifier {
       }
       await controller.setVolume(1);
       await controller.play();
+      notifyListeners();
     } catch (error) {
       _markComplete();
     }
@@ -77,10 +89,17 @@ class SplashController extends ChangeNotifier {
 
   void _scheduleFallbackTimer(Duration videoDuration) {
     _fallbackTimer?.cancel();
-    final timeout = videoDuration > Duration.zero
-        ? videoDuration + const Duration(seconds: 2)
-        : const Duration(seconds: 10);
-    _fallbackTimer = Timer(timeout, _markComplete);
+    final effectiveDuration = _effectiveIntroDuration(videoDuration);
+    _fallbackTimer = Timer(
+      effectiveDuration + const Duration(seconds: 2),
+      _markComplete,
+    );
+  }
+
+  Duration _effectiveIntroDuration(Duration videoDuration) {
+    final maxDuration = AppConstants.splashIntroMaxDuration;
+    if (videoDuration <= Duration.zero) return maxDuration;
+    return videoDuration < maxDuration ? videoDuration : maxDuration;
   }
 
   void _onVideoUpdate() {
@@ -93,6 +112,11 @@ class SplashController extends ChangeNotifier {
 
     final value = controller.value;
     if (value.hasError) {
+      _markComplete();
+      return;
+    }
+
+    if (value.position >= _effectiveIntroDuration(value.duration)) {
       _markComplete();
       return;
     }
@@ -123,31 +147,27 @@ class SplashController extends ChangeNotifier {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
     _isComplete = true;
-    if (SplashService.shouldPlayIntroVideo) {
-      unawaited(SplashService.markSplashVideoSeen());
-    }
     notifyListeners();
   }
 
-  Future<void> stopPlayback() async {
+  /// Detaches the player from the widget tree, then releases native resources.
+  Future<void> teardownVideo() async {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
 
     final controller = _videoController;
-    if (controller != null) {
-      controller.removeListener(_onVideoUpdate);
-      _videoController = null;
-      try {
-        if (controller.value.isInitialized) {
-          await controller.pause();
-          await controller.setVolume(0);
-        }
-      } catch (_) {}
-      try {
-        await controller.dispose();
-      } catch (_) {}
-      SplashVideoModel.reset();
+    _videoController = null;
+    controller?.removeListener(_onVideoUpdate);
+    if (!_disposed) {
+      notifyListeners();
     }
+
+    if (controller == null && !SplashVideoModel.hasLiveController) {
+      return;
+    }
+
+    await SchedulerBinding.instance.endOfFrame;
+    await SplashVideoModel.stopAndDispose();
   }
 
   @override
@@ -159,15 +179,7 @@ class SplashController extends ChangeNotifier {
 
     final controller = _videoController;
     _videoController = null;
-    if (controller != null) {
-      controller.removeListener(_onVideoUpdate);
-      unawaited(
-        controller.dispose().catchError((_) {
-          return null;
-        }),
-      );
-      SplashVideoModel.reset();
-    }
+    controller?.removeListener(_onVideoUpdate);
     super.dispose();
   }
 }

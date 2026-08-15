@@ -403,6 +403,9 @@ class AppStrings {
       _t('Pending withdrawals', 'عمليات السحب المعلقة');
   String get negativeBalance => _t('Negative Balance', 'الرصيد السالب');
   String get completedTrips => _t('Completed Trips', 'الرحلات المكتملة');
+  String get cashPayment => _t('Cash', 'نقداً');
+  String get tripDetails => _t('Details', 'التفاصيل');
+  String get paymentMethod => _t('Payment Method', 'طريقة الدفع');
   String get enterAmount => _t('Enter Amount', 'أدخل المبلغ');
   String get noActiveRideToCall =>
       _t('No active ride to call.', 'لا توجد رحلة نشطة للاتصال.');
@@ -548,6 +551,13 @@ class AppStrings {
   String get eidDiscountAd =>
       _t('20% Discount on Eid Rides', 'خصم 20% على رحلات العيد');
   String get learnMore => _t('Learn More', 'اعرف المزيد');
+  String get appUpdateRequiredTitle =>
+      _t('Update Required', 'التحديث مطلوب');
+  String get appUpdateRequiredMessage => _t(
+        'A new version of QGlide Driver is available on the store. Please update to continue using the app.',
+        'يتوفر إصدار جديد من تطبيق QGlide Driver في المتجر. يرجى التحديث للمتابعة.',
+      );
+  String get appUpdateNow => _t('Update Now', 'حدّث الآن');
   String get signupPerformanceBonusTitle => _t(
         'Sign-Up Performance Cash Bonus',
         'مكافأة نقدية لأداء التسجيل',

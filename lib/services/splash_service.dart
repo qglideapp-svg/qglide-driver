@@ -13,9 +13,8 @@ class SplashService {
 
   static bool get hasSeenSplashVideo => _hasSeenSplashVideo;
 
-  /// True only on the very first app open for logged-out users.
-  static bool get shouldPlayIntroVideo =>
-      !_hasSeenSplashVideo && !AuthService.hasValidSession;
+  /// Intro plays until the driver finishes the onboarding carousel.
+  static bool get shouldPlayIntroVideo => !AuthService.hasCompletedOnboarding;
 
   static Future<void> loadFromDisk() async {
     if (_prefsUnavailable) return;

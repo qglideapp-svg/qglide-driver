@@ -16,7 +16,9 @@ import '../../shared/widgets/profile_avatar_image.dart';
 import '../../services/location_tracker_service.dart';
 import 'home_controller.dart';
 import 'models/driver_ride_details.dart';
+import 'models/driver_completed_trip.dart';
 import 'models/nearby_ride_offer.dart';
+import 'completed_ride_details_view.dart';
 import 'ride_completed_view.dart';
 import '../../routes/app_routes.dart';
 import 'widgets/active_pickup_panel.dart';
@@ -62,7 +64,8 @@ class HomeView extends ConsumerStatefulWidget {
 class _HomeViewState extends ConsumerState<HomeView>
     with WidgetsBindingObserver {
   final _tutorialRegistry = TutorialTargetRegistry();
-  HomeController get _controller => ref.read(homeControllerProvider);
+  HomeController? _homeController;
+  HomeController get _controller => _homeController!;
   Timer? _homeAdPollTimer;
   var _isShowingRiderStopModal = false;
   var _isShowingAddedStopArrivalModal = false;
@@ -75,6 +78,7 @@ class _HomeViewState extends ConsumerState<HomeView>
   @override
   void initState() {
     super.initState();
+    _homeController = ref.read(homeControllerProvider);
     WidgetsBinding.instance.addObserver(this);
     unawaited(ScreenWakeService.enable());
     _controller.addListener(_onControllerUpdated);
@@ -87,10 +91,11 @@ class _HomeViewState extends ConsumerState<HomeView>
         final forceWalletRefresh = AuthService.shouldRefreshHomeWallet;
         if (forceWalletRefresh) {
           AuthService.shouldRefreshHomeWallet = false;
-          ref.invalidate(homeControllerProvider);
+          _rebindHomeController(invalidate: true);
         }
 
-        final controller = ref.read(homeControllerProvider);
+        final controller = _homeController;
+        if (controller == null || !mounted) return;
         controller.prepareForHomeEntry(forceRefresh: forceWalletRefresh);
         await controller.processPendingRideNotificationHandlers();
         if (!mounted) return;
@@ -151,17 +156,29 @@ class _HomeViewState extends ConsumerState<HomeView>
     );
   }
 
+  void _rebindHomeController({required bool invalidate}) {
+    _homeController?.removeListener(_onControllerUpdated);
+    if (invalidate) {
+      ref.invalidate(homeControllerProvider);
+    }
+    _homeController = ref.read(homeControllerProvider);
+    _homeController!.addListener(_onControllerUpdated);
+  }
+
   bool _canShowHomeAdModal() {
+    if (!mounted) return false;
     if (_isShowingHomeAdModal ||
         _isShowingRiderStopModal ||
         _isShowingAddedStopArrivalModal) {
       return false;
     }
     if (!AuthService.isLoggedIn) return false;
-    if (_controller.hasActivePickup ||
-        _controller.hasActiveTrip ||
-        _controller.hasRideRequest ||
-        _controller.isPendingRideAcceptance) {
+    final controller = _homeController;
+    if (controller == null) return false;
+    if (controller.hasActivePickup ||
+        controller.hasActiveTrip ||
+        controller.hasRideRequest ||
+        controller.isPendingRideAcceptance) {
       return false;
     }
     return true;
@@ -203,8 +220,9 @@ class _HomeViewState extends ConsumerState<HomeView>
     WidgetsBinding.instance.removeObserver(this);
     unawaited(ScreenWakeService.disable());
     _homeAdPollTimer?.cancel();
-    _controller.removeListener(_onControllerUpdated);
-    _controller.detachMapController();
+    _homeController?.removeListener(_onControllerUpdated);
+    _homeController?.detachMapController();
+    _homeController = null;
     super.dispose();
   }
 
@@ -449,6 +467,17 @@ class _HomeViewState extends ConsumerState<HomeView>
             },
           );
         },
+      ),
+    );
+  }
+
+  Future<void> _openCompletedTripDetails(DriverCompletedTrip trip) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => CompletedRideDetailsView(
+          rideId: trip.id,
+          initialDetails: trip.toPreviewDetails(),
+        ),
       ),
     );
   }
@@ -882,6 +911,7 @@ class _HomeViewState extends ConsumerState<HomeView>
                                 onWithdraw: _handleWithdrawal,
                                 onTransfer: _handleTransfer,
                                 onRefer: () => unawaited(_handleRefer()),
+                                onCompletedTripTap: _openCompletedTripDetails,
                                 tutorialRegistry: _tutorialRegistry,
                               ),
                             ),
@@ -1245,6 +1275,7 @@ class _DashboardPanel extends StatelessWidget {
     required this.onWithdraw,
     required this.onTransfer,
     required this.onRefer,
+    required this.onCompletedTripTap,
     required this.tutorialRegistry,
   });
 
@@ -1262,6 +1293,7 @@ class _DashboardPanel extends StatelessWidget {
   }) onWithdraw;
   final Future<void> Function(double amount) onTransfer;
   final VoidCallback onRefer;
+  final ValueChanged<DriverCompletedTrip> onCompletedTripTap;
   final TutorialTargetRegistry tutorialRegistry;
 
   @override
@@ -1396,6 +1428,7 @@ class _DashboardPanel extends StatelessWidget {
                                     onPreviousTripsPage: () => unawaited(
                                       controller.previousCompletedTripsPage(),
                                     ),
+                                    onCompletedTripTap: onCompletedTripTap,
                                     onRefresh: controller.refreshEarnings,
                                     onTopUp: controller.openTopUp,
                                     onWithdrawal: controller.openWithdrawal,

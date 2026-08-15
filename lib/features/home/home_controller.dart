@@ -1235,7 +1235,7 @@ class HomeController extends ChangeNotifier {
       }
     } finally {
       _isLoadingWalletBalance = false;
-      notifyListeners();
+      if (hasListeners) notifyListeners();
     }
   }
 
@@ -2078,9 +2078,12 @@ class HomeController extends ChangeNotifier {
           _currentRideOffer?.id != offer.id ||
           _currentRideOffer?.pickupEtaMinutes != offer.pickupEtaMinutes;
 
-      _showRideRequest(offer);
+      final didShow = _showRideRequest(offer);
 
-      if (shouldNotify && playSound && !_shouldSuppressRideRequestSound(offer.id)) {
+      if (shouldNotify &&
+          didShow &&
+          playSound &&
+          !_shouldSuppressRideRequestSound(offer.id)) {
         unawaited(RideRequestSoundService.play(offer.id));
       }
       if (shouldNotify) {
@@ -2122,15 +2125,15 @@ class HomeController extends ChangeNotifier {
     return _missingFromNearbyCount >= _nearbyMissDismissThreshold;
   }
 
-  void _showRideRequest(NearbyRideOffer offer) {
+  bool _showRideRequest(NearbyRideOffer offer) {
     if (hasAcceptedRide || _isAcceptingRide || _isPendingRideAcceptance) {
-      return;
+      return false;
     }
     if (_wasRideDeclined(offer.id)) {
-      return;
+      return false;
     }
     if (!hasCommissionFunds) {
-      return;
+      return false;
     }
 
     _clearNearbyMissTracking();
@@ -2145,30 +2148,43 @@ class HomeController extends ChangeNotifier {
       if (detailsChanged) {
         notifyListeners();
       }
-      return;
+      return true;
     }
 
     _currentRideOffer = offer;
     _hasRideRequest = true;
     notifyListeners();
+    return true;
+  }
+
+  bool _isShowingRideRequestFor(String? rideId) {
+    if (!_hasRideRequest || _currentRideOffer == null) return false;
+    if (rideId == null || rideId.isEmpty) return true;
+    return _currentRideOffer!.id == rideId;
   }
 
   /// Opens the accept panel after the driver taps a ride-request notification.
-  Future<void> handleRideRequestNotificationOpened(
+  Future<bool> handleRideRequestNotificationOpened(
     Map<String, dynamic> data,
   ) async {
     final rideId = data['ride_id']?.toString();
     await _ensureDeclinedRideIdsLoaded();
     if (_wasRideDeclined(rideId)) {
       PushNotificationService.clearPendingRideRequestLaunchState(rideId: rideId);
-      return;
+      return false;
     }
 
     if (!hasAcceptedRide && !_isAcceptingRide && !_isPendingRideAcceptance) {
       _openedRideRequestFromNotification = true;
     }
 
+    final preview = NearbyRideOffer.fromNotificationData(data);
+    if (preview != null && preview.isPending) {
+      _showRideRequest(preview);
+    }
+
     await _refreshRideRequestAfterNotificationOpened(data);
+    return _isShowingRideRequestFor(rideId);
   }
 
   /// Dismisses a stale ride-request panel when the rider cancels.
@@ -2212,31 +2228,55 @@ class HomeController extends ChangeNotifier {
 
     if (rideId == null || rideId.isEmpty) return;
 
+    await _ensureDeclinedRideIdsLoaded();
+
     if (action == AppConstants.rideRequestNotificationActionIgnore) {
       await declineRideRequest(rideIdOverride: rideId);
       return;
     }
 
     if (action != AppConstants.rideRequestNotificationActionAccept) return;
-    if (_isAcceptingRide || _isDecliningRide || hasAcceptedRide) return;
+    if (_isAcceptingRide || _isDecliningRide) return;
+    if (_isPendingRideAcceptance && _pendingAcceptRideId == rideId) return;
+    if (hasAcceptedRide && _acceptedRideOffer?.id == rideId) return;
+    if (hasAcceptedRide && _acceptedRideOffer?.id != rideId) return;
 
-    final persisted = await ActiveRideStorage.load();
+    var persisted = await ActiveRideStorage.load();
     if (persisted != null && persisted.id == rideId) {
       await _syncAcceptedRideFromNotification(persisted);
       return;
     }
 
     final previewOffer = NearbyRideOffer.fromNotificationData(data);
-    if (previewOffer == null || !previewOffer.isPending) {
-      await _refreshRideRequestDetails(rideId: rideId);
+    if (previewOffer != null && previewOffer.isPending) {
+      _showRideRequest(previewOffer);
     }
 
     if (_currentRideOffer == null || _currentRideOffer!.id != rideId) {
       if (previewOffer != null && previewOffer.isPending) {
         _currentRideOffer = previewOffer;
+        _hasRideRequest = true;
       } else {
-        return;
+        await _refreshRideRequestDetails(rideId: rideId);
       }
+    }
+
+    persisted = await ActiveRideStorage.load();
+    if (persisted != null && persisted.id == rideId) {
+      await _syncAcceptedRideFromNotification(persisted);
+      return;
+    }
+
+    if (_currentRideOffer?.id != rideId) {
+      final acceptedFromNotification =
+          await PushNotificationService.performNotificationRideAccept(data);
+      if (acceptedFromNotification) {
+        persisted = await ActiveRideStorage.load();
+        if (persisted != null && persisted.id == rideId) {
+          await _syncAcceptedRideFromNotification(persisted);
+        }
+      }
+      return;
     }
 
     await acceptRideRequest();
@@ -2283,10 +2323,7 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> _refreshRideRequestDetails({String? rideId}) async {
-    if (hasAcceptedRide ||
-        _isAcceptingRide ||
-        _isPendingRideAcceptance ||
-        _isFetchingNearbyRides) {
+    if (hasAcceptedRide || _isAcceptingRide || _isPendingRideAcceptance) {
       return;
     }
     if (_wasRideDeclined(rideId)) {
@@ -2295,6 +2332,22 @@ class HomeController extends ChangeNotifier {
         dismissRideRequest();
       }
       return;
+    }
+
+    if (_isFetchingNearbyRides) {
+      for (var i = 0; i < 30; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (!_isFetchingNearbyRides) break;
+      }
+      if (_isFetchingNearbyRides) {
+        if (rideId != null &&
+            rideId.isNotEmpty &&
+            _hasRideRequest &&
+            _currentRideOffer?.id == rideId) {
+          unawaited(_retryRefreshRideRequestDetails(rideId));
+        }
+        return;
+      }
     }
 
     _isFetchingNearbyRides = true;
@@ -2308,6 +2361,13 @@ class HomeController extends ChangeNotifier {
 
       final rides = AuthService.extractNearbyRides(response);
       if (rides.isEmpty) {
+        if (rideId != null &&
+            rideId.isNotEmpty &&
+            _hasRideRequest &&
+            _currentRideOffer?.id == rideId) {
+          unawaited(_retryRefreshRideRequestDetails(rideId));
+          return;
+        }
         if (_hasRideRequest && rideId == null) {
           dismissRideRequest();
         }
@@ -2343,6 +2403,17 @@ class HomeController extends ChangeNotifier {
     } finally {
       _isFetchingNearbyRides = false;
     }
+  }
+
+  Future<void> _retryRefreshRideRequestDetails(String rideId) async {
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (!hasListeners) return;
+    if (_wasRideDeclined(rideId)) return;
+    if (!_hasRideRequest || _currentRideOffer?.id != rideId) return;
+    if (hasAcceptedRide || _isAcceptingRide || _isPendingRideAcceptance) {
+      return;
+    }
+    await _refreshRideRequestDetails(rideId: rideId);
   }
 
   void dismissRideRequest({bool force = false}) {
@@ -2785,6 +2856,7 @@ class HomeController extends ChangeNotifier {
     _mapSurfaceReady = false;
     unawaited(
       _onHomeMapCreated().whenComplete(() {
+        if (!hasListeners) return;
         _mapSurfaceReady = true;
         notifyListeners();
       }),

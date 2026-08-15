@@ -14,6 +14,7 @@ import '../../services/auth_service.dart';
 import '../../services/location_tracker_service.dart';
 import '../../shared/widgets/profile_avatar_image.dart';
 import '../../shared/widgets/responsive_screen_shell.dart';
+import '../home/widgets/driver_ad_placement_banner.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
   const ProfileView({super.key});
@@ -317,6 +318,15 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                             ],
                           ),
                         ),
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: r.gap(r.isTablet ? 32 : 20),
+                          ),
+                          child: const DriverAdPlacementBanner(
+                            showFallbackWhenEmpty: false,
+                          ),
+                        ),
+                        ResponsiveGap(28),
                         _SupportCard(
                           r: r,
                           strings: strings,

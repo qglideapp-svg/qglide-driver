@@ -15,13 +15,23 @@ class AdPlacementService {
   static Future<Map<String, dynamic>> fetchPlacement(
     String placementKey, {
     bool authenticated = false,
+    String? platform,
+    int? appBuild,
   }) async {
     final languageCode = AppLocaleService.instance.languageCode;
+    final queryParameters = <String, String>{
+      'placement_key': placementKey,
+      'lang': languageCode,
+    };
+    if (platform != null && platform.isNotEmpty) {
+      queryParameters['platform'] = platform;
+    }
+    if (appBuild != null) {
+      queryParameters['app_build'] = appBuild.toString();
+    }
+
     final uri = Uri.parse(ApiConfig.adPlacementUrl).replace(
-      queryParameters: {
-        'placement_key': placementKey,
-        'lang': languageCode,
-      },
+      queryParameters: queryParameters,
     );
 
     final headers = <String, String>{
@@ -71,6 +81,7 @@ class AdPlacementCache extends ChangeNotifier {
 
   static const driverAccountBannerKey = 'driver_account_banner';
   static const driverTripCompleteKey = 'driver_trip_complete';
+  static const driverWalletKey = 'driver_wallet';
   static const Duration bannerPollInterval = Duration(seconds: 4);
   static const Duration homeModalPollInterval = Duration(seconds: 4);
 
@@ -125,33 +136,43 @@ class AdPlacementCache extends ChangeNotifier {
     }
   }
 
-  Future<void> pollDriverAccountBanner() async {
+  Future<void> pollDriverPlacements() async {
     if (_isPolling) return;
     _isPolling = true;
     try {
-      await refreshKey(
-        driverAccountBannerKey,
-        authenticated: true,
-      );
+      await Future.wait([
+        refreshKey(
+          driverAccountBannerKey,
+          authenticated: true,
+        ),
+        refreshKey(driverWalletKey),
+      ]);
     } finally {
       _isPolling = false;
     }
   }
 
-  /// Begin 4s authenticated polling for the driver account banner ad.
+  /// Hot-reload compatibility — old timers may still reference this name.
+  Future<void> pollDriverAccountBanner() => pollDriverPlacements();
+
+  /// Begin 4s polling for driver ad placements.
   void start() {
     if (_started) return;
     _started = true;
+    _restartPollingTimer();
+    unawaited(pollDriverPlacements());
+  }
+
+  void _restartPollingTimer() {
     _timer?.cancel();
-    unawaited(refreshKey(driverAccountBannerKey, authenticated: true));
     _timer = Timer.periodic(bannerPollInterval, (_) {
-      unawaited(pollDriverAccountBanner());
+      unawaited(pollDriverPlacements());
     });
   }
 
   /// Immediate refresh — used on app resume.
   void refreshNow() {
-    unawaited(refreshKey(driverAccountBannerKey, authenticated: true));
+    unawaited(pollDriverPlacements());
   }
 
   /// Clears cached copy and refetches after the user switches language.
@@ -159,7 +180,7 @@ class AdPlacementCache extends ChangeNotifier {
     _cache.clear();
     _loadedKeys.clear();
     notifyListeners();
-    unawaited(refreshKey(driverAccountBannerKey, authenticated: true));
+    unawaited(pollDriverPlacements());
   }
 
   void stop() {

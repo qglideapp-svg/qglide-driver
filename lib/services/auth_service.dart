@@ -2951,6 +2951,56 @@ class AuthService {
     }
   }
 
+  static Future<Map<String, dynamic>> getDriverCompletedTripDetails({
+    required String rideId,
+  }) async {
+    await refreshSessionIfNeeded();
+
+    final headers = _authorizedHeaders;
+    if (headers == null) {
+      return {
+        'success': false,
+        'error': {'message': 'Not logged in. Please sign in again.'},
+      };
+    }
+
+    final uri = Uri.parse(ApiConfig.driverCompletedTripDetailsUrl).replace(
+      queryParameters: {'ride_id': rideId},
+    );
+
+    try {
+      final response = await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 30));
+
+      return _handleResponse(response);
+    } catch (e) {
+      return {
+        'success': false,
+        'error': {'message': 'Network error: $e'},
+      };
+    }
+  }
+
+  static DriverRideDetails? extractCompletedTripDetails(
+    Map<String, dynamic> response,
+  ) {
+    if (response['success'] != true) return null;
+
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) return null;
+
+    final payload = unwrapAuthPayload(data);
+    final trip = payload['trip'];
+    if (trip is! Map) return null;
+
+    final details = DriverRideDetails.fromCompletedTripPayload(
+      Map<String, dynamic>.from(trip),
+    );
+    if (details.id.isEmpty) return null;
+    return details;
+  }
+
   static Future<Map<String, dynamic>> getDriverTodayStats() async {
     return _authorizedGet(Uri.parse(ApiConfig.driverTodayStatsUrl));
   }
@@ -4015,20 +4065,35 @@ class AuthService {
       fetchDriverRideDetails({
     required String rideId,
   }) async {
+    final completedResponse =
+        await getDriverCompletedTripDetails(rideId: rideId);
+    if (completedResponse['success'] == true) {
+      final completedDetails = extractCompletedTripDetails(completedResponse);
+      if (completedDetails != null) {
+        return (details: completedDetails, error: null);
+      }
+    }
+
     final statusResponse = await getDriverRideStatus(rideId: rideId);
     if (statusResponse['success'] != true) {
       return (
         details: null,
         error: extractErrorMessage(
-          statusResponse,
-          fallback: 'Could not load ride details.',
+          completedResponse['success'] == true ? statusResponse : completedResponse,
+          fallback: AppStrings.current().errLoadRideDetails,
         ),
       );
     }
 
     final ride = extractDriverRideStatus(statusResponse);
     if (ride == null || (ride['id']?.toString() ?? '').isEmpty) {
-      return (details: null, error: 'Ride details not found.');
+      return (
+        details: null,
+        error: extractErrorMessage(
+          completedResponse,
+          fallback: AppStrings.current().errLoadRideDetails,
+        ),
+      );
     }
 
     double? paidAmount;

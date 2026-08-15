@@ -7,9 +7,11 @@ import '../../../config/dashboard_theme.dart';
 import '../../../config/app_fonts.dart';
 import '../../../config/app_responsive.dart';
 import '../../../shared/widgets/app_strings_scope.dart';
+import '../../../services/ad_placement_service.dart';
 import '../models/driver_completed_trip.dart';
 import '../models/driver_wallet_balance.dart';
 import '../models/signup_performance_bonus.dart';
+import 'driver_ad_placement_banner.dart';
 import 'signup_performance_bonus_card.dart';
 
 class EarningsPanel extends StatefulWidget {
@@ -33,6 +35,7 @@ class EarningsPanel extends StatefulWidget {
     this.completedTripsHasMore = false,
     this.onNextTripsPage,
     this.onPreviousTripsPage,
+    this.onCompletedTripTap,
     this.onRefresh,
   });
 
@@ -54,6 +57,7 @@ class EarningsPanel extends StatefulWidget {
   final bool completedTripsHasMore;
   final VoidCallback? onNextTripsPage;
   final VoidCallback? onPreviousTripsPage;
+  final ValueChanged<DriverCompletedTrip>? onCompletedTripTap;
   final Future<void> Function()? onRefresh;
 
   @override
@@ -105,6 +109,11 @@ class _EarningsPanelState extends State<EarningsPanel> {
                   isReferLoading: widget.isLoadingReferDriver,
                   isReferEnabled: widget.isReferEnabled,
                 ),
+                SizedBox(height: r.gap(16)),
+                const DriverAdPlacementBanner(
+                  placementKey: AdPlacementCache.driverWalletKey,
+                  showFallbackWhenEmpty: false,
+                ),
                 if (widget.isLoadingSignupBonus) ...[
                   SizedBox(height: r.gap(16)),
                   const SignupPerformanceBonusSkeleton(),
@@ -143,6 +152,7 @@ class _EarningsPanelState extends State<EarningsPanel> {
                 hasMore: widget.completedTripsHasMore,
                 onPrevious: widget.onPreviousTripsPage,
                 onNext: widget.onNextTripsPage,
+                onTripTap: widget.onCompletedTripTap,
               ),
             ),
           ),
@@ -655,6 +665,7 @@ class _CompletedTripsSection extends StatelessWidget {
     required this.hasMore,
     this.onPrevious,
     this.onNext,
+    this.onTripTap,
   });
 
   final List<DriverCompletedTrip> trips;
@@ -665,6 +676,7 @@ class _CompletedTripsSection extends StatelessWidget {
   final bool hasMore;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final ValueChanged<DriverCompletedTrip>? onTripTap;
 
   @override
   Widget build(BuildContext context) {
@@ -731,7 +743,12 @@ class _CompletedTripsSection extends StatelessWidget {
                   .map(
                     (trip) => Padding(
                       padding: EdgeInsets.only(bottom: r.gap(8)),
-                      child: _CompletedTripRow(trip: trip),
+                      child: _CompletedTripRow(
+                        trip: trip,
+                        onTap: onTripTap == null
+                            ? null
+                            : () => onTripTap!(trip),
+                      ),
                     ),
                   )
                   .toList(),
@@ -853,26 +870,36 @@ class _PaginationButton extends StatelessWidget {
 }
 
 class _CompletedTripRow extends StatelessWidget {
-  const _CompletedTripRow({required this.trip});
+  const _CompletedTripRow({
+    required this.trip,
+    this.onTap,
+  });
 
   final DriverCompletedTrip trip;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
+    final s = AppStringsScope.of(context);
     final dashboard = DashboardTheme.of(context);
     final amount = trip.amount;
     final amountDecimals = amount == amount.roundToDouble() ? 0 : 2;
 
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(r.gap(12)),
-      decoration: BoxDecoration(
-        color: dashboard.card,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(r.gap(12)),
-      ),
-      child: Row(
-        children: [
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(r.gap(12)),
+          decoration: BoxDecoration(
+            color: dashboard.card,
+            borderRadius: BorderRadius.circular(r.gap(12)),
+          ),
+          child: Row(
+            children: [
           Container(
             width: r.w(44).clamp(40.0, 48.0),
             height: r.w(44).clamp(40.0, 48.0),
@@ -931,6 +958,28 @@ class _CompletedTripRow extends StatelessWidget {
                   color: const Color(0xFF049327),
                 ),
               ),
+              if (trip.isCashPayment) ...[
+                SizedBox(height: r.gap(4)),
+                Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: r.gap(8),
+                    vertical: r.gap(3),
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0x1FE3AA00),
+                    borderRadius: BorderRadius.circular(r.gap(6)),
+                  ),
+                  child: Text(
+                    s.cashPayment,
+                    style: TextStyle(
+                      fontFamily: AppFonts.satoshi,
+                      fontSize: r.sp(11).clamp(10.0, 12.0),
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.loginButton,
+                    ),
+                  ),
+                ),
+              ],
               SizedBox(height: r.gap(2)),
               Text(
                 trip.distanceDisplay,
@@ -942,7 +991,9 @@ class _CompletedTripRow extends StatelessWidget {
               ),
             ],
           ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }

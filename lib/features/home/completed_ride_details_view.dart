@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../config/app_fonts.dart';
 import '../../config/app_responsive.dart';
 import '../../config/dashboard_theme.dart';
+import '../../shared/widgets/app_strings_scope.dart';
 import '../../shared/widgets/responsive_screen_shell.dart';
 import 'models/driver_ride_details.dart';
 import 'widgets/driver_ride_details_section.dart';
@@ -20,6 +21,7 @@ class CompletedRideDetailsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
+    final s = AppStringsScope.of(context);
     final dashboard = DashboardTheme.of(context);
     final horizontalPadding = r.gap(r.isTablet ? 32 : 20);
 
@@ -54,7 +56,7 @@ class CompletedRideDetailsView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Details',
+                  s.tripDetails,
                   style: TextStyle(
                     fontFamily: AppFonts.satoshi,
                     fontSize: r.sp(27).clamp(24.0, 30.0),
@@ -68,6 +70,7 @@ class CompletedRideDetailsView extends StatelessWidget {
                   rideId: rideId,
                   initialDetails: initialDetails,
                   showTitle: false,
+                  forceCompleted: true,
                 ),
               ],
             ),

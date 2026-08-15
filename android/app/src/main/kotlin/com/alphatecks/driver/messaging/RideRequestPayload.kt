@@ -69,6 +69,35 @@ data class RideRequestPayload(
 
         fun isRideRequest(remoteMessage: RemoteMessage): Boolean = from(remoteMessage) != null
 
+        fun fromData(data: Map<*, *>): RideRequestPayload? {
+            val normalized = linkedMapOf<String, String>()
+            for ((key, value) in data) {
+                val keyString = key?.toString()?.trim().orEmpty()
+                if (keyString.isEmpty()) continue
+                val valueString = value?.toString()?.trim().orEmpty()
+                if (valueString.isNotEmpty()) {
+                    normalized[keyString] = valueString
+                }
+            }
+            if (normalized.isEmpty()) return null
+
+            val type = normalized["type"]?.lowercase()?.trim()
+                ?: normalized["notification_type"]?.lowercase()?.trim()
+            if (type == "new_ride_request") {
+                return build(normalized, null, null)
+            }
+
+            val rideId = normalized["ride_id"].orEmpty().ifEmpty { normalized["id"].orEmpty() }
+            if (rideId.isNotEmpty()) {
+                val status = normalized["status"]?.lowercase()?.trim().orEmpty()
+                if (status.isEmpty() || status == "requested" || status == "pending") {
+                    return build(normalized, null, null)
+                }
+            }
+
+            return null
+        }
+
         private fun build(
             data: Map<String, String>,
             notificationTitle: String?,

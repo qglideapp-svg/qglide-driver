@@ -15,13 +15,15 @@ class DriverAdPlacementBanner extends StatelessWidget {
     super.key,
     this.placementKey = AdPlacementCache.driverAccountBannerKey,
     this.showSkeletonUntilLoaded = true,
+    this.showFallbackWhenEmpty = true,
   });
 
   final String placementKey;
   final bool showSkeletonUntilLoaded;
+  final bool showFallbackWhenEmpty;
 
   Future<void> _onCtaTap(BuildContext context, AdPlacementPayload placement) async {
-    final link = placement.deepLink.trim();
+    final link = placement.resolveLinkForPlatform();
     if (link.isEmpty) return;
 
     final uri = Uri.tryParse(link);
@@ -52,7 +54,9 @@ class DriverAdPlacementBanner extends StatelessWidget {
 
         final placement = cache.get(placementKey);
         if (placement == null) {
-          return const _AdPlacementFallbackCard();
+          return showFallbackWhenEmpty
+              ? const _AdPlacementFallbackCard()
+              : const SizedBox.shrink();
         }
 
         return _AdPlacementCard(

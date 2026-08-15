@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../config/app_constants.dart';
@@ -16,6 +18,9 @@ class SplashVideoModel {
   static bool get isIntroSuppressed => _introSuppressed;
 
   static bool get introWasStarted => _introWasStarted;
+
+  static bool get hasLiveController =>
+      !_introSuppressed && _controller != null;
 
   /// Mutes and disposes the intro video; blocks future playback this session.
   static Future<void> suppressIntro() async {
@@ -37,6 +42,7 @@ class SplashVideoModel {
     _introWasStarted = true;
     _controller ??= VideoPlayerController.asset(
       AppConstants.splashVideoAsset,
+      viewType: _splashVideoViewType(),
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     _initializeFuture ??= _initialize(_controller!);
@@ -106,5 +112,13 @@ class SplashVideoModel {
 
     await controller.setLooping(false);
     await controller.setVolume(0);
+  }
+
+  static VideoViewType _splashVideoViewType() {
+    if (!kIsWeb && Platform.isAndroid) {
+      // TextureView can render audio-only black frames on some Android devices.
+      return VideoViewType.platformView;
+    }
+    return VideoViewType.textureView;
   }
 }

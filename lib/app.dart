@@ -11,6 +11,7 @@ import 'config/app_theme.dart';
 import 'core/providers/app_providers.dart';
 import 'routes/app_routes.dart';
 import 'services/ad_placement_service.dart';
+import 'services/app_update_service.dart';
 import 'services/auth_service.dart';
 import 'services/push_notification_service.dart';
 import 'features/splash/splash_video_model.dart';
@@ -28,11 +29,15 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    AdPlacementCache.instance.start();
+    AppUpdateService.startPolling();
+    if (!AppUpdateService.isBlocking) {
+      AdPlacementCache.instance.start();
+    }
   }
 
   @override
   void dispose() {
+    AppUpdateService.stopPolling();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -41,7 +46,11 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        AdPlacementCache.instance.start();
+        AppUpdateService.startPolling();
+        AppUpdateService.refreshNow();
+        if (!AppUpdateService.isBlocking) {
+          AdPlacementCache.instance.start();
+        }
         unawaited(SplashVideoModel.suppressIntroIfNeeded());
         unawaited(PushNotificationService.stopAllRideRequestAlerts(
           rideId: PushNotificationService.lastKnownRideRequestId,
@@ -57,6 +66,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       case AppLifecycleState.hidden:
         unawaited(SplashVideoModel.suppressIntroIfNeeded());
         AdPlacementCache.instance.stop();
+        AppUpdateService.stopPolling();
     }
   }
 
@@ -65,6 +75,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     ref.listen<bool>(localeProvider, (previous, next) {
       if (previous != next) {
         AdPlacementCache.instance.refreshForLocaleChange();
+        AppUpdateService.refreshForLocaleChange();
       }
     });
 
@@ -101,7 +112,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   maxScaleFactor: 1.2,
                 ),
               ),
-              child: child ?? const SizedBox.shrink(),
+              child: AppUpdateBlockingOverlay(
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
           ),
         );

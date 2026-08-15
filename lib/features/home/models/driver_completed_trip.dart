@@ -1,4 +1,5 @@
 import '../../../config/app_strings.dart';
+import 'driver_ride_details.dart';
 
 double _readTripDouble(dynamic value) {
   if (value is num) return value.toDouble();
@@ -13,6 +14,7 @@ class DriverCompletedTrip {
     required this.amount,
     required this.distanceKm,
     this.completedAt,
+    this.paymentMethod,
   });
 
   final String id;
@@ -21,6 +23,9 @@ class DriverCompletedTrip {
   final double amount;
   final double distanceKm;
   final DateTime? completedAt;
+  final String? paymentMethod;
+
+  bool get isCashPayment => paymentMethod?.trim().toLowerCase() == 'cash';
 
   String get locationDisplay {
     final dropoff = AppStrings.current().localizeKnownAddress(dropoffAddress);
@@ -36,6 +41,19 @@ class DriverCompletedTrip {
   String get distanceDisplay =>
       AppStrings.current().formatDistanceKm(distanceKm);
 
+  DriverRideDetails toPreviewDetails() {
+    return DriverRideDetails(
+      id: id,
+      status: 'completed',
+      pickupAddress: pickupAddress,
+      dropoffAddress: dropoffAddress,
+      amount: amount,
+      distanceKm: distanceKm,
+      completedAt: completedAt,
+      paymentMethod: paymentMethod,
+    );
+  }
+
   factory DriverCompletedTrip.fromJson(Map<String, dynamic> json) {
     final amount = _readTripDouble(
       json['rider_paid_amount'] ??
@@ -50,6 +68,7 @@ class DriverCompletedTrip {
       amount: amount,
       distanceKm: _readTripDouble(json['distance_km']),
       completedAt: _parseDateTime(json['completed_at']),
+      paymentMethod: json['payment_method']?.toString(),
     );
   }
 

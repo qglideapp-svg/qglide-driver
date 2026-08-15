@@ -28,20 +28,20 @@ class DriverHomeAdModal extends StatelessWidget {
   }
 
   Future<void> _onCtaTap(BuildContext context) async {
-    final link = placement.deepLink.trim();
-    if (link.isNotEmpty) {
-      final uri = Uri.tryParse(link);
-      if (uri != null) {
-        try {
-          final launched = await launchUrl(
-            uri,
-            mode: LaunchMode.externalApplication,
-          );
-          if (!launched && uri.scheme != 'http' && uri.scheme != 'https') {
-            await launchUrl(uri, mode: LaunchMode.platformDefault);
-          }
-        } catch (_) {}
-      }
+    final link = placement.resolveLinkForPlatform();
+    if (link.isEmpty) return;
+
+    final uri = Uri.tryParse(link);
+    if (uri != null) {
+      try {
+        final launched = await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
+        if (!launched && uri.scheme != 'http' && uri.scheme != 'https') {
+          await launchUrl(uri, mode: LaunchMode.platformDefault);
+        }
+      } catch (_) {}
     }
     if (context.mounted) Navigator.of(context).pop();
   }

@@ -122,7 +122,8 @@ class PushNotificationService {
 
   /// Called when the driver opens a ride-request notification. Registered by
   /// [HomeController] so nearby rides can be fetched and the accept panel shown.
-  static Future<void> Function(Map<String, dynamic> data)?
+  /// Returns whether the in-app accept panel is visible for this request.
+  static Future<bool> Function(Map<String, dynamic> data)?
       onRideRequestNotificationOpened;
 
   /// Called when the driver taps Accept or Ignore on a ride-request notification.
@@ -234,6 +235,13 @@ class PushNotificationService {
           }
         } catch (_) {}
         await prefs.remove(_pendingRideNotificationOpenKey);
+      }
+
+      final pendingActionRaw =
+          prefs.getString(_pendingRideNotificationActionKey);
+      if (pendingActionRaw != null && pendingActionRaw.isNotEmpty) {
+        _launchedFromRideRequestNotification = true;
+        _pendingRideActionInvoked = false;
       }
     } catch (_) {}
   }
@@ -436,7 +444,7 @@ class PushNotificationService {
   static Future<bool> wasNativeRideRequestRecentlyShown(String rideId) async {
     if (rideId.isEmpty) return false;
 
-    if (Platform.isIOS) {
+    if (Platform.isAndroid || Platform.isIOS) {
       try {
         final shown = await _rideNotificationsChannel.invokeMethod<bool>(
           'wasNativeRideRequestRecentlyShown',
@@ -448,9 +456,12 @@ class PushNotificationService {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final shownAt = prefs.getDouble('$_nativeRideAlertShownPrefix$rideId');
+      final shownAt = prefs.getDouble('$_nativeRideAlertShownPrefix$rideId') ??
+          prefs.getInt('$_nativeRideAlertShownPrefix$rideId')?.toDouble();
       if (shownAt == null) return false;
-      return DateTime.now().millisecondsSinceEpoch / 1000 - shownAt < 40;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final shownMs = shownAt > 1e11 ? shownAt : shownAt * 1000;
+      return nowMs - shownMs < 40000;
     } catch (_) {
       return false;
     }
@@ -976,11 +987,11 @@ class PushNotificationService {
   ) async {
     _rememberRideRequestId(data);
     final rideId = data['ride_id']?.toString() ?? '';
-    if (rideId.isNotEmpty) {
+    final modalShown = await _invokeRideRequestOpenedHandler(data);
+    if (modalShown && rideId.isNotEmpty) {
       unawaited(RideRequestSoundService.play(rideId));
     }
-    await _invokeRideRequestOpenedHandler(data);
-    if (Platform.isIOS) {
+    if (Platform.isAndroid || Platform.isIOS) {
       if (await wasNativeRideRequestRecentlyShown(rideId)) return;
       try {
         await _rideNotificationsChannel.invokeMethod<bool>(
@@ -993,7 +1004,9 @@ class PushNotificationService {
           e,
           st,
         );
-        unawaited(showRideRequestNotification(data: data, playSound: false));
+        if (!Platform.isAndroid) {
+          unawaited(showRideRequestNotification(data: data, playSound: false));
+        }
       }
       return;
     }
@@ -1132,6 +1145,17 @@ class PushNotificationService {
     }
   }
 
+  /// Accepts a ride from a notification action, persisting the offer when successful.
+  static Future<bool> performNotificationRideAccept(
+    Map<String, dynamic> data,
+  ) async {
+    await _performBackgroundRideAccept(data);
+    final rideId = data['ride_id']?.toString();
+    if (rideId == null || rideId.isEmpty) return false;
+    final persisted = await ActiveRideStorage.load();
+    return persisted?.id == rideId;
+  }
+
   static Future<void> _performBackgroundRideAccept(
     Map<String, dynamic> data,
   ) async {
@@ -1220,7 +1244,6 @@ class PushNotificationService {
       }
 
       _rememberRideRequestId(data);
-      await prefs.remove(_pendingRideNotificationActionKey);
       await stopAllRideRequestAlerts(rideId: data['ride_id']?.toString());
 
       _pendingRideActionInvoked = true;
@@ -1229,27 +1252,33 @@ class PushNotificationService {
         _navigateToHome();
       }
 
-      await _invokeRideRequestActionHandler(action, data);
+      final handled = await _invokeRideRequestActionHandler(action, data);
+      if (handled) {
+        await prefs.remove(_pendingRideNotificationActionKey);
+      } else {
+        _pendingRideActionInvoked = false;
+      }
     } catch (_) {}
     finally {
       _isConsumingPendingRideAction = false;
     }
   }
 
-  static Future<void> _invokeRideRequestActionHandler(
+  static Future<bool> _invokeRideRequestActionHandler(
     String action,
     Map<String, dynamic> data,
   ) async {
-    for (var attempt = 0; attempt < 40; attempt++) {
+    for (var attempt = 0; attempt < 120; attempt++) {
       final handler = onRideRequestNotificationAction;
       if (handler != null) {
         await handler(action, data);
-        return;
+        return true;
       }
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
 
     await _performRideRequestNotificationAction(action, data);
+    return true;
   }
 
   static Future<void> showLocalNotificationForMessage(
@@ -1431,17 +1460,17 @@ class PushNotificationService {
     SchedulerBinding.instance.addPostFrameCallback((_) => navigate());
   }
 
-  static Future<void> _invokeRideRequestOpenedHandler(
+  static Future<bool> _invokeRideRequestOpenedHandler(
     Map<String, dynamic> data,
   ) async {
     for (var attempt = 0; attempt < 40; attempt++) {
       final handler = onRideRequestNotificationOpened;
       if (handler != null) {
-        await handler(data);
-        return;
+        return await handler(data);
       }
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
+    return false;
   }
 
   static Future<void> _invokeRideCancelledHandler(

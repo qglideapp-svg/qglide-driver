@@ -35,6 +35,23 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                "showRideRequestNotification" -> {
+                    val args = call.arguments as? Map<*, *>
+                    val payload = args?.let { RideRequestPayload.fromData(it) }
+                    if (payload == null) {
+                        result.success(false)
+                    } else {
+                        RideRequestNotifications.show(this, payload)
+                        result.success(true)
+                    }
+                }
+
+                "wasNativeRideRequestRecentlyShown" -> {
+                    val args = call.arguments as? Map<*, *>
+                    val rideId = args?.get("rideId")?.toString().orEmpty()
+                    result.success(wasNativeRideRequestRecentlyShown(rideId))
+                }
+
                 else -> result.notImplemented()
             }
         }
@@ -84,11 +101,21 @@ class MainActivity : FlutterActivity() {
             .commit()
     }
 
+    private fun wasNativeRideRequestRecentlyShown(rideId: String): Boolean {
+        if (rideId.isEmpty()) return false
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val shownAt = prefs.getLong("$NATIVE_RIDE_ALERT_SHOWN_PREFIX$rideId", 0L)
+        if (shownAt <= 0L) return false
+        return System.currentTimeMillis() - shownAt < NATIVE_RIDE_ALERT_DEDUPE_MS
+    }
+
     companion object {
         private const val RIDE_NOTIFICATIONS_CHANNEL =
             "com.alphatecks.driver/ride_notifications"
         private const val PREFS_NAME = "FlutterSharedPreferences"
         private const val PENDING_OPEN_KEY = "flutter.pending_ride_notification_open"
         private const val OPEN_HOME_KEY = "flutter.should_open_home_for_ride_launch"
+        private const val NATIVE_RIDE_ALERT_SHOWN_PREFIX = "flutter.native_ride_alert_shown_"
+        private const val NATIVE_RIDE_ALERT_DEDUPE_MS = 40_000L
     }
 }

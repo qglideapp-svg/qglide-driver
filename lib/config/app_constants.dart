@@ -3,6 +3,7 @@ class AppConstants {
 
   static const appTitle = 'QGlide Driver';
   static const splashVideoAsset = 'assets/anime.mp4';
+  static const splashIntroMaxDuration = Duration(seconds: 8);
   static const splashPosterAsset = 'assets/splash_poster.png';
   static const logoAsset = 'assets/app_logo.png';
   static const logoIconAsset = 'assets/app_logo.png';
@@ -30,10 +31,12 @@ class AppConstants {
   static const profilePhotoAsset = 'assets/profile_photo.png';
   static const manageVehiclePhotoAsset = 'assets/manage_vehicle_photo.png';
   static const supportPhoneNumber = '+97466527179';
+  static const androidPackageName = 'com.alphatecks.driver';
   static const androidPlayStoreUrl =
-      'https://play.google.com/store/apps/details?id=com.alphatecks.driver';
+      'https://play.google.com/store/apps/details?id=$androidPackageName';
   static const iosAppStoreUrl =
       'https://apps.apple.com/app/qglide-driver/id6780602357';
+  static const driverForceUpdatePlacementKey = 'driver_forced_update';
   static const rideRequestAcceptDuration = Duration(seconds: 40);
   static const riderAddedStopNotificationDuration = Duration(seconds: 30);
   static const addedStopArrivalNotificationDuration = Duration(seconds: 30);

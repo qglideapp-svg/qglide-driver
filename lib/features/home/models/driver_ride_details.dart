@@ -114,6 +114,7 @@ class DriverRideDetails {
     this.riderName,
     this.riderEmail,
     this.riderRating,
+    this.paymentMethod,
   });
 
   final String id;
@@ -127,6 +128,9 @@ class DriverRideDetails {
   final String? riderName;
   final String? riderEmail;
   final double? riderRating;
+  final String? paymentMethod;
+
+  bool get isCashPayment => paymentMethod?.trim().toLowerCase() == 'cash';
 
   String get tripIdDisplay => formatRideTripDisplayId(id);
 
@@ -189,6 +193,7 @@ class DriverRideDetails {
       riderName: _preferOptionalString(fetched.riderName, riderName),
       riderEmail: _preferOptionalString(fetched.riderEmail, riderEmail),
       riderRating: fetched.riderRating ?? riderRating,
+      paymentMethod: _preferOptionalString(fetched.paymentMethod, paymentMethod),
     );
   }
 
@@ -238,6 +243,39 @@ class DriverRideDetails {
       riderRating: riderMap?['rating'] == null
           ? null
           : _readDetailsDouble(riderMap?['rating']),
+      paymentMethod: ride['payment_method']?.toString(),
+    );
+  }
+
+  factory DriverRideDetails.fromCompletedTripPayload(Map<String, dynamic> trip) {
+    final rider = trip['rider'];
+    final riderMap = rider is Map<String, dynamic>
+        ? rider
+        : rider is Map
+            ? Map<String, dynamic>.from(rider)
+            : null;
+
+    var amount = _readDetailsDouble(trip['rider_paid_amount']);
+    if (amount <= 0) amount = _readDetailsDouble(trip['total_fare']);
+    if (amount <= 0) amount = _readDetailsDouble(trip['actual_fare']);
+    if (amount <= 0) amount = _readDetailsDouble(trip['estimated_fare']);
+
+    return DriverRideDetails(
+      id: trip['id']?.toString() ?? '',
+      status: trip['status']?.toString() ?? 'completed',
+      pickupAddress: trip['pickup_address']?.toString() ?? '',
+      dropoffAddress: trip['dropoff_address']?.toString() ?? '',
+      amount: amount,
+      distanceKm: _readDetailsDouble(trip['distance_km']),
+      completedAt: _readDetailsDateTime(trip['completed_at']),
+      durationMinutes: _readDetailsInt(trip['actual_duration_minutes']) ??
+          _readDetailsInt(trip['duration_minutes']),
+      riderName: riderMap?['name']?.toString(),
+      riderEmail: riderMap?['email']?.toString(),
+      riderRating: riderMap?['rating'] == null
+          ? null
+          : _readDetailsDouble(riderMap?['rating']),
+      paymentMethod: trip['payment_method']?.toString(),
     );
   }
 

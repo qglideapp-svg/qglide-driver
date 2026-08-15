@@ -47,6 +47,8 @@ class ApiConfig {
   static const getWalletBalanceUrl = '$supabaseUrl/functions/v1/get-wallet-balance';
   static const driverCompletedTripsUrl =
       '$supabaseUrl/functions/v1/driver-completed-trips';
+  static const driverCompletedTripDetailsUrl =
+      '$supabaseUrl/functions/v1/driver-completed-trip-details';
   static const processDepositUrl = '$supabaseUrl/functions/v1/process-deposit';
   static const driverRequestPayoutUrl =
       '$supabaseUrl/functions/v1/driver-request-payout';

@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'app_navigator_key.dart';
 import 'routes/app_routes.dart';
+import 'services/app_update_service.dart';
 import 'services/auth_service.dart';
 import 'services/driver_online_foreground_service.dart';
 import 'services/push_notification_service.dart';
@@ -41,19 +42,33 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_tryFastStartForReturningUser());
-      if (_bootstrapStarted) return;
-      _bootstrapStarted = true;
-      unawaited(_runBootstrap());
+      unawaited(_startBootstrapAfterUpdateCheck());
     });
     _watchdogTimer = Timer(const Duration(seconds: 6), () {
       unawaited(_forceNavigationIfStuck());
     });
   }
 
+  Future<void> _startBootstrapAfterUpdateCheck() async {
+    await AppUpdateService.waitUntilReady();
+    if (!mounted || AppUpdateService.isBlocking) return;
+
+    final updateRequired = await AppUpdateService.enforceUpdateIfNeeded();
+    if (!mounted || updateRequired) return;
+
+    await _tryFastStartForReturningUser();
+    if (!mounted || StartupNavigationTracker.hasLeftSplash) return;
+
+    if (_bootstrapStarted) return;
+    _bootstrapStarted = true;
+    unawaited(_runBootstrap());
+  }
+
   Future<void> _tryFastStartForReturningUser() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
+    if (AppUpdateService.isBlocking) return;
     if (!AuthService.hasValidSession) return;
+    if (SplashService.shouldPlayIntroVideo) return;
 
     await SplashVideoModel.suppressIntro();
 
@@ -143,6 +158,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
   Future<void> _handleNotificationColdStart() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
+    if (AppUpdateService.isBlocking) return;
     if (!PushNotificationService.shouldOpenHomeForRideLaunch) return;
     if (!AuthService.hasValidSession) return;
 
@@ -161,8 +177,11 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
   Future<void> _forceNavigationIfStuck() async {
     if (StartupNavigationTracker.hasLeftSplash) return;
-    // First-time users must finish the intro splash video once.
-    if (!SplashService.hasSeenSplashVideo) {
+    await AppUpdateService.waitUntilReady();
+    if (AppUpdateService.isBlocking) return;
+    if (await AppUpdateService.enforceUpdateIfNeeded()) return;
+    // New users should finish the intro splash video before watchdog navigation.
+    if (SplashService.shouldPlayIntroVideo) {
       return;
     }
 
