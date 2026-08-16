@@ -24,7 +24,6 @@ import '../../routes/app_routes.dart';
 import 'widgets/active_pickup_panel.dart';
 import 'widgets/active_trip_panel.dart';
 import 'widgets/cancel_trip_modal.dart';
-import 'widgets/commission_wallet_required_modal.dart';
 import 'widgets/earnings_panel.dart';
 import 'widgets/refer_driver_modal.dart';
 import 'widgets/arrived_at_added_stop_modal.dart';
@@ -391,31 +390,15 @@ class _HomeViewState extends ConsumerState<HomeView>
     unawaited(_handleGoOnlinePressedAsync());
   }
 
-  Future<void> _showCommissionWalletRequiredModal() {
-    return CommissionWalletRequiredModal.show(
-      context,
-      onTopUp: _controller.openTopUp,
-      onTransfer: _controller.openTransfer,
-    );
-  }
-
   Future<void> _handleGoOnlinePressedAsync() async {
     final error = await _controller.toggleOnlineStatus();
     if (!mounted || error == null) return;
-    if (error == AppStringsScope.of(context).commissionWalletRequiredShort) {
-      await _showCommissionWalletRequiredModal();
-      return;
-    }
     _showLocationErrorSnackBar(error);
   }
 
   Future<void> _handleAcceptRide() async {
     final error = await _controller.acceptRideRequest();
     if (!mounted || error == null) return;
-    if (error == AppStringsScope.of(context).commissionWalletRequiredShort) {
-      await _showCommissionWalletRequiredModal();
-      return;
-    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(error)),
     );

@@ -404,8 +404,41 @@ class AppStrings {
   String get negativeBalance => _t('Negative Balance', 'الرصيد السالب');
   String get completedTrips => _t('Completed Trips', 'الرحلات المكتملة');
   String get cashPayment => _t('Cash', 'نقداً');
+  String get walletPayment => _t('Wallet', 'المحفظة');
+  String get googlePay => _t('Google Pay', 'Google Pay');
+  String get applePay => _t('Apple Pay', 'Apple Pay');
+  String get digitalPayment => _t('Digital Pay', 'دفع رقمي');
   String get tripDetails => _t('Details', 'التفاصيل');
   String get paymentMethod => _t('Payment Method', 'طريقة الدفع');
+
+  String? formatCompletedTripPaymentMethod(String? method) {
+    switch (_normalizeCompletedTripPaymentMethod(method)) {
+      case 'cash':
+        return cashPayment;
+      case 'wallet':
+        return walletPayment;
+      case 'google_pay':
+        return googlePay;
+      case 'apple_pay':
+        return applePay;
+      case 'card':
+      case 'digital':
+      case 'online':
+        return digitalPayment;
+      default:
+        return null;
+    }
+  }
+
+  static String normalizeCompletedTripPaymentMethod(String? method) =>
+      _normalizeCompletedTripPaymentMethod(method);
+
+  static String _normalizeCompletedTripPaymentMethod(String? method) {
+    final text = method?.trim().toLowerCase() ?? '';
+    if (text.isEmpty) return '';
+    return text.replaceAll(RegExp(r'[\s-]+'), '_');
+  }
+
   String get enterAmount => _t('Enter Amount', 'أدخل المبلغ');
   String get noActiveRideToCall =>
       _t('No active ride to call.', 'لا توجد رحلة نشطة للاتصال.');

@@ -26,8 +26,9 @@ class SplashView extends ConsumerStatefulWidget {
 }
 
 class _SplashViewState extends ConsumerState<SplashView> {
-  static const _returningUserMinLogoDuration = Duration(milliseconds: 900);
-  static const _returningUserMaxWait = Duration(seconds: 3);
+  static const _returningUserMinLogoDuration = Duration.zero;
+  static const _returningUserMaxWait = Duration(seconds: 2);
+  static const _returningUserStartupGate = Duration(milliseconds: 400);
 
   var _hasNavigated = false;
   ProviderSubscription<SplashController>? _splashSubscription;
@@ -64,7 +65,11 @@ class _SplashViewState extends ConsumerState<SplashView> {
   }
 
   Future<void> _prepareSplashNavigation() async {
-    await AppUpdateService.waitUntilReady();
+    if (!_showIntroVideo) {
+      await _waitForReturningUserStartupGate();
+    } else {
+      await AppUpdateService.waitUntilReady();
+    }
     if (!mounted) return;
 
     if (AppUpdateService.isBlocking) return;
@@ -95,7 +100,12 @@ class _SplashViewState extends ConsumerState<SplashView> {
   }
 
   void _maybeScheduleNavigation() {
-    if (_hasNavigated || !mounted || AppUpdateService.isBlocking) return;
+    if (_hasNavigated ||
+        !mounted ||
+        AppUpdateService.isBlocking ||
+        StartupNavigationTracker.hasLeftSplash) {
+      return;
+    }
 
     if (_showIntroVideo) {
       final splash = ref.read(splashControllerProvider);
@@ -103,6 +113,19 @@ class _SplashViewState extends ConsumerState<SplashView> {
     }
 
     _scheduleNavigation();
+  }
+
+  Future<void> _waitForReturningUserStartupGate() async {
+    if (AppUpdateService.isBlocking) {
+      await AppUpdateService.waitUntilReady();
+      return;
+    }
+
+    try {
+      await AppUpdateService.waitUntilReady().timeout(_returningUserStartupGate);
+    } on TimeoutException {
+      // Proceed to home; force-update overlay can appear once the poll finishes.
+    }
   }
 
   Future<void> _startReturningUserSplash() async {
@@ -137,6 +160,14 @@ class _SplashViewState extends ConsumerState<SplashView> {
   }
 
   Future<DriverNavigationTarget> _resolveNavigationTarget() async {
+    if (!_showIntroVideo && AuthService.hasValidSession) {
+      final fastTarget =
+          await DriverAuthNavigation.resolveFastReturningSplashTarget();
+      if (fastTarget != null) {
+        return fastTarget;
+      }
+    }
+
     await AuthService.loadStoredSessionFromDisk();
     await AuthService.maintainSession();
 
@@ -213,7 +244,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
 
     if (target.route == AppRoutes.home) {
       AuthService.shouldRefreshHomeWallet = true;
-      await AuthService.prefetchWalletBalanceForHome();
+      unawaited(AuthService.prefetchWalletBalanceForHome());
     }
 
     try {

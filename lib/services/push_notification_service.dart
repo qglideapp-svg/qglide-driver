@@ -115,6 +115,7 @@ class PushNotificationService {
   static var _launchedFromRideRequestNotification = false;
   static var _pendingRideHandlerInvoked = false;
   static Map<String, dynamic>? _pendingNotificationData;
+  static DateTime? _pendingNotificationStashedAt;
   static String? _cachedDeviceId;
   static String? _cachedDeviceType;
   static String? _lastOpenedIncomingCallId;
@@ -167,6 +168,11 @@ class PushNotificationService {
   /// Re-reads stashed native notification state when the app resumes from background.
   static Future<void> processPendingRideNotificationHandlersOnResume() async {
     if (kIsWeb) return;
+
+    if (_isPendingNotificationStale()) {
+      clearPendingRideRequestLaunchState();
+      return;
+    }
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -249,7 +255,11 @@ class PushNotificationService {
   /// Drops a stashed Accept/Ignore action from a previous session so a normal
   /// cold start is not hijacked by stale notification state.
   static Future<void> clearStaleNotificationActionsOnNormalLaunch() async {
-    if (shouldOpenHomeForRideLaunch || kIsWeb) return;
+    if (kIsWeb) return;
+    if (_isPendingNotificationStale()) {
+      clearPendingRideRequestLaunchState();
+    }
+    if (shouldOpenHomeForRideLaunch) return;
 
     clearPendingRideRequestLaunchState();
     try {
@@ -279,6 +289,7 @@ class PushNotificationService {
     }
 
     _pendingNotificationData = null;
+    _pendingNotificationStashedAt = null;
     _launchedFromRideRequestNotification = false;
     _pendingRideHandlerInvoked = false;
     _pendingRideActionInvoked = false;
@@ -660,8 +671,20 @@ class PushNotificationService {
     final pending = _pendingNotificationData;
     if (pending == null || !isRideRequestNotification(pending)) return;
     if (_pendingRideHandlerInvoked) return;
+    if (_isPendingNotificationStale()) {
+      clearPendingRideRequestLaunchState(
+        rideId: pending['ride_id']?.toString(),
+      );
+      return;
+    }
+
     _pendingRideHandlerInvoked = true;
-    await _invokeRideRequestOpenedHandler(pending);
+    final shown = await _invokeRideRequestOpenedHandler(pending);
+    if (!shown) {
+      clearPendingRideRequestLaunchState(
+        rideId: pending['ride_id']?.toString(),
+      );
+    }
   }
 
   /// Invokes a stashed Accept action once [onRideRequestNotificationAction]
@@ -889,10 +912,20 @@ class PushNotificationService {
   static void _stashLaunchNotificationData(Map<String, dynamic> data) {
     if (!isNotificationForDriver(data)) return;
     _pendingNotificationData = data;
+    _pendingNotificationStashedAt = DateTime.now();
     if (isRideRequestNotification(data)) {
       _launchedFromRideRequestNotification = true;
       _pendingRideHandlerInvoked = false;
     }
+  }
+
+  static bool _isPendingNotificationStale() {
+    final stashedAt = _pendingNotificationStashedAt;
+    if (stashedAt == null) return false;
+
+    final maxAge = AppConstants.rideRequestAcceptDuration +
+        const Duration(seconds: 30);
+    return DateTime.now().difference(stashedAt) > maxAge;
   }
 
   static void _markAppReady() {
@@ -1395,6 +1428,7 @@ class PushNotificationService {
   static void _handleNotificationData(Map<String, dynamic> data) {
     if (!_isAppReady) {
       _pendingNotificationData = data;
+      _pendingNotificationStashedAt = DateTime.now();
       if (isRideRequestNotification(data)) {
         _launchedFromRideRequestNotification = true;
         _pendingRideHandlerInvoked = false;

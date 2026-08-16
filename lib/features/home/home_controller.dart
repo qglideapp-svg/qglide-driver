@@ -233,7 +233,6 @@ class HomeController extends ChangeNotifier {
   bool get isProcessingWithdrawal => _isProcessingWithdrawal;
   bool get isProcessingTransfer => _isProcessingTransfer;
   DriverWalletBalance? get walletBalance => _walletBalance;
-  bool get hasCommissionFunds => _walletBalance?.hasCommissionFunds ?? true;
   bool get isLoadingCompletedTrips => _isLoadingCompletedTrips;
   List<DriverCompletedTrip> get completedTrips => _completedTrips;
   int get completedTripsTotalCount => _completedTripsTotalCount;
@@ -436,24 +435,10 @@ class HomeController extends ChangeNotifier {
 
   List<LatLng> get _activeRoutePoints => _fullRoutePoints;
 
-  Future<bool> ensureCommissionWalletFunded() async {
-    if (_walletBalance == null && !_isLoadingWalletBalance) {
-      await loadWalletBalance();
-    }
-    return _walletBalance?.hasCommissionFunds ?? true;
-  }
-
   Future<String?> toggleOnlineStatus() async {
     if (_isUpdatingOnlineStatus) return null;
 
     final targetStatus = !_isOnline;
-    if (targetStatus) {
-      final funded = await ensureCommissionWalletFunded();
-      if (!funded) {
-        return AppStrings.current().commissionWalletRequiredShort;
-      }
-    }
-
     final previousStatus = _isOnline;
 
     _isUpdatingOnlineStatus = true;
@@ -2132,10 +2117,6 @@ class HomeController extends ChangeNotifier {
     if (_wasRideDeclined(offer.id)) {
       return false;
     }
-    if (!hasCommissionFunds) {
-      return false;
-    }
-
     _clearNearbyMissTracking();
 
     if (_hasRideRequest && _currentRideOffer?.id == offer.id) {
@@ -2178,13 +2159,17 @@ class HomeController extends ChangeNotifier {
       _openedRideRequestFromNotification = true;
     }
 
-    final preview = NearbyRideOffer.fromNotificationData(data);
-    if (preview != null && preview.isPending) {
-      _showRideRequest(preview);
-    }
-
+    // Validate against the backend before showing the panel. Notification
+    // payloads default missing status to "requested", which caused stale alerts
+    // to flash briefly on app reopen.
     await _refreshRideRequestAfterNotificationOpened(data);
-    return _isShowingRideRequestFor(rideId);
+
+    final shown = _isShowingRideRequestFor(rideId);
+    if (!shown) {
+      _openedRideRequestFromNotification = false;
+      PushNotificationService.clearPendingRideRequestLaunchState(rideId: rideId);
+    }
+    return shown;
   }
 
   /// Dismisses a stale ride-request panel when the rider cancels.
@@ -2247,18 +2232,8 @@ class HomeController extends ChangeNotifier {
       return;
     }
 
-    final previewOffer = NearbyRideOffer.fromNotificationData(data);
-    if (previewOffer != null && previewOffer.isPending) {
-      _showRideRequest(previewOffer);
-    }
-
     if (_currentRideOffer == null || _currentRideOffer!.id != rideId) {
-      if (previewOffer != null && previewOffer.isPending) {
-        _currentRideOffer = previewOffer;
-        _hasRideRequest = true;
-      } else {
-        await _refreshRideRequestDetails(rideId: rideId);
-      }
+      await _refreshRideRequestDetails(rideId: rideId);
     }
 
     persisted = await ActiveRideStorage.load();
@@ -2428,6 +2403,9 @@ class HomeController extends ChangeNotifier {
     _hasRideRequest = false;
     _openedRideRequestFromNotification = false;
     _currentRideOffer = null;
+    if (rideId != null && rideId.isNotEmpty) {
+      PushNotificationService.clearPendingRideRequestLaunchState(rideId: rideId);
+    }
     if (!hasAcceptedRide && !_isPendingRideAcceptance) {
       stopRideStatusPolling();
     }
@@ -2480,11 +2458,6 @@ class HomeController extends ChangeNotifier {
     final offer = _currentRideOffer;
     if (offer == null || _isAcceptingRide || _isDecliningRide) {
       return AppStrings.current().errNoRideToAccept;
-    }
-
-    final funded = await ensureCommissionWalletFunded();
-    if (!funded) {
-      return AppStrings.current().commissionWalletRequiredShort;
     }
 
     _lastAcceptAttemptRideId = offer.id;

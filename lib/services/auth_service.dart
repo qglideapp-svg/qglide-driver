@@ -3817,16 +3817,22 @@ class AuthService {
       final direct = _readNullableString(vehicle['vehicle_image']) ??
           _readNullableString(vehicle['image_url']) ??
           _readNullableString(vehicle['vehicle_image_url']);
-      if (direct != null) return direct;
+      if (direct != null) return normalizeAvatarUrl(direct);
     }
 
     final images = payload['vehicle_images'];
     if (images is Map<String, dynamic>) {
-      for (final key in ['vehicle_front', 'vehicle_side', 'vehicle_back']) {
+      for (final key in [
+        'vehicle_exterior',
+        'vehicle_interior',
+        'vehicle_front',
+        'vehicle_side',
+        'vehicle_back',
+      ]) {
         final candidate = images[key];
         if (candidate is Map<String, dynamic>) {
           final fileUrl = _readNullableString(candidate['file_url']);
-          if (fileUrl != null) return fileUrl;
+          if (fileUrl != null) return normalizeAvatarUrl(fileUrl);
         }
       }
     }

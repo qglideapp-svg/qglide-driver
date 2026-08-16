@@ -150,10 +150,10 @@ class DriverRideDetailsContent extends StatelessWidget {
               label: 'Total Amount',
               value: details.amountDisplay,
             ),
-            if (details.isCashPayment)
+            if (details.showsPaymentMethod)
               RideDetailsRow(
                 label: s.paymentMethod,
-                value: s.cashPayment,
+                value: details.paymentMethodDisplay!,
               ),
           ],
         ),

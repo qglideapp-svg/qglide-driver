@@ -1,3 +1,4 @@
+import '../../../config/app_strings.dart';
 import 'nearby_ride_offer.dart';
 
 double _readDetailsDouble(dynamic value) {
@@ -130,7 +131,30 @@ class DriverRideDetails {
   final double? riderRating;
   final String? paymentMethod;
 
-  bool get isCashPayment => paymentMethod?.trim().toLowerCase() == 'cash';
+  String? get _normalizedPaymentMethod =>
+      AppStrings.normalizeCompletedTripPaymentMethod(paymentMethod);
+
+  bool get isCashPayment => _normalizedPaymentMethod == 'cash';
+
+  bool get isWalletPayment => _normalizedPaymentMethod == 'wallet';
+
+  bool get isDigitalPayment {
+    switch (_normalizedPaymentMethod) {
+      case 'google_pay':
+      case 'apple_pay':
+      case 'card':
+      case 'digital':
+      case 'online':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  String? get paymentMethodDisplay =>
+      AppStrings.current().formatCompletedTripPaymentMethod(paymentMethod);
+
+  bool get showsPaymentMethod => paymentMethodDisplay != null;
 
   String get tripIdDisplay => formatRideTripDisplayId(id);
 

@@ -50,7 +50,21 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
   }
 
   Future<void> _startBootstrapAfterUpdateCheck() async {
-    await AppUpdateService.waitUntilReady();
+    final isReturningUser =
+        AuthService.hasValidSession && !SplashService.shouldPlayIntroVideo;
+
+    if (isReturningUser && !AppUpdateService.isBlocking) {
+      try {
+        await AppUpdateService.waitUntilReady().timeout(
+          const Duration(milliseconds: 400),
+        );
+      } on TimeoutException {
+        // Home can open while the update poll finishes in the background.
+      }
+    } else {
+      await AppUpdateService.waitUntilReady();
+    }
+
     if (!mounted || AppUpdateService.isBlocking) return;
 
     final updateRequired = await AppUpdateService.enforceUpdateIfNeeded();
@@ -81,7 +95,7 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
 
     _logPhase('fast_start_home');
     AuthService.shouldRefreshHomeWallet = true;
-    await AuthService.prefetchWalletBalanceForHome();
+    unawaited(AuthService.prefetchWalletBalanceForHome());
     StartupNavigationTracker.markNavigated();
     await nav.pushReplacementNamed(target.route, arguments: target.arguments);
     if (AuthService.hasValidSession) {

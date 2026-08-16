@@ -881,7 +881,6 @@ class _CompletedTripRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
-    final s = AppStringsScope.of(context);
     final dashboard = DashboardTheme.of(context);
     final amount = trip.amount;
     final amountDecimals = amount == amount.roundToDouble() ? 0 : 2;
@@ -958,26 +957,12 @@ class _CompletedTripRow extends StatelessWidget {
                   color: const Color(0xFF049327),
                 ),
               ),
-              if (trip.isCashPayment) ...[
+              if (trip.showsPaymentMethod) ...[
                 SizedBox(height: r.gap(4)),
-                Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: r.gap(8),
-                    vertical: r.gap(3),
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0x1FE3AA00),
-                    borderRadius: BorderRadius.circular(r.gap(6)),
-                  ),
-                  child: Text(
-                    s.cashPayment,
-                    style: TextStyle(
-                      fontFamily: AppFonts.satoshi,
-                      fontSize: r.sp(11).clamp(10.0, 12.0),
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.loginButton,
-                    ),
-                  ),
+                _CompletedTripPaymentBadge(
+                  label: trip.paymentMethodDisplay!,
+                  isCash: trip.isCashPayment,
+                  isWallet: trip.isWalletPayment,
                 ),
               ],
               SizedBox(height: r.gap(2)),
@@ -993,6 +978,53 @@ class _CompletedTripRow extends StatelessWidget {
           ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompletedTripPaymentBadge extends StatelessWidget {
+  const _CompletedTripPaymentBadge({
+    required this.label,
+    required this.isCash,
+    required this.isWallet,
+  });
+
+  final String label;
+  final bool isCash;
+  final bool isWallet;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = context.responsive;
+    final background = isCash
+        ? const Color(0x1FE3AA00)
+        : isWallet
+            ? const Color(0x1F2563EB)
+            : const Color(0x1F049327);
+    final foreground = isCash
+        ? AppColors.loginButton
+        : isWallet
+            ? const Color(0xFF2563EB)
+            : const Color(0xFF049327);
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: r.gap(8),
+        vertical: r.gap(3),
+      ),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(r.gap(6)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontFamily: AppFonts.satoshi,
+          fontSize: r.sp(11).clamp(10.0, 12.0),
+          fontWeight: FontWeight.w700,
+          color: foreground,
         ),
       ),
     );

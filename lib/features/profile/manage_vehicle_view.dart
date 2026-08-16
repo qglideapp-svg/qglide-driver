@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../../config/app_colors.dart';
 import '../../config/app_strings.dart';
 import '../../config/dashboard_theme.dart';
-import '../../config/app_constants.dart';
 import '../../config/app_fonts.dart';
 import '../../config/app_responsive.dart';
 import '../../services/auth_service.dart';
@@ -149,7 +148,10 @@ class _ManageVehicleViewState extends State<ManageVehicleView> {
     _yearController.text = fields['year'] ?? '';
     _colourController.text = fields['color'] ?? '';
     _licensePlateController.text = fields['license_plate'] ?? '';
-    _vehicleImageUrl = AuthService.extractVehicleImageUrl(payload);
+    final nextImageUrl = AuthService.extractVehicleImageUrl(payload);
+    if (nextImageUrl != null) {
+      _vehicleImageUrl = nextImageUrl;
+    }
   }
 
   void _startEditing() {
@@ -624,7 +626,8 @@ class _VehiclePhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final resolvedUrl = imageUrl;
+    final dashboard = DashboardTheme.of(context);
+    final resolvedUrl = imageUrl?.trim();
 
     Widget image;
     if (resolvedUrl != null && resolvedUrl.isNotEmpty) {
@@ -644,15 +647,15 @@ class _VehiclePhoto extends StatelessWidget {
             ),
           );
         },
-        errorBuilder: (context, error, stackTrace) => Image.asset(
-          AppConstants.manageVehiclePhotoAsset,
-          fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _VehiclePhotoPlaceholder(
+          r: r,
+          dashboard: dashboard,
         ),
       );
     } else {
-      image = Image.asset(
-        AppConstants.manageVehiclePhotoAsset,
-        fit: BoxFit.cover,
+      image = _VehiclePhotoPlaceholder(
+        r: r,
+        dashboard: dashboard,
       );
     }
 
@@ -661,6 +664,30 @@ class _VehiclePhoto extends StatelessWidget {
       child: AspectRatio(
         aspectRatio: 434 / 284,
         child: image,
+      ),
+    );
+  }
+}
+
+class _VehiclePhotoPlaceholder extends StatelessWidget {
+  const _VehiclePhotoPlaceholder({
+    required this.r,
+    required this.dashboard,
+  });
+
+  final AppResponsive r;
+  final DashboardTheme dashboard;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: dashboard.surface,
+      child: Center(
+        child: Icon(
+          Icons.directions_car_outlined,
+          size: r.iconMd * 1.8,
+          color: dashboard.mutedText,
+        ),
       ),
     );
   }
