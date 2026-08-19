@@ -24,6 +24,7 @@ import '../../routes/app_routes.dart';
 import 'widgets/active_pickup_panel.dart';
 import 'widgets/active_trip_panel.dart';
 import 'widgets/cancel_trip_modal.dart';
+import 'widgets/driver_support_chat_bubble.dart';
 import 'widgets/earnings_panel.dart';
 import 'widgets/refer_driver_modal.dart';
 import 'widgets/arrived_at_added_stop_modal.dart';
@@ -711,10 +712,21 @@ class _HomeViewState extends ConsumerState<HomeView>
     );
     final panelMaxWidth =
         r.isTablet ? r.maxContentWidth : double.infinity;
+    final showHomeSupportChat = isDefaultDashboard &&
+        !isEarningsTab &&
+        !showsBottomModal &&
+        !hasActiveTrip &&
+        !hasActiveRide;
+    final supportChatBottom = r.gap(10) + r.h(72) + r.gap(20) + r.gap(6);
+    final resizesForKeyboard = !_controller.showsEarningsFlow;
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    final supportChatAnchorBottom = keyboardInset > 0
+        ? (resizesForKeyboard ? r.gap(8) : keyboardInset + r.gap(8))
+        : supportChatBottom;
 
     return Scaffold(
       backgroundColor: DashboardTheme.of(context).scaffold,
-      resizeToAvoidBottomInset: !_controller.showsEarningsFlow,
+      resizeToAvoidBottomInset: resizesForKeyboard,
       body: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -794,6 +806,12 @@ class _HomeViewState extends ConsumerState<HomeView>
               ),
             ),
           ),
+          if (showHomeSupportChat)
+            Positioned(
+              right: r.gap(16),
+              bottom: supportChatAnchorBottom,
+              child: const DriverSupportChatBubble(),
+            ),
         ],
       ),
     );

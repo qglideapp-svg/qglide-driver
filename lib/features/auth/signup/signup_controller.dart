@@ -35,6 +35,7 @@ class SignupController extends ChangeNotifier {
     required String password,
     required String confirmPassword,
     String? referralCode,
+    String? partnerCode,
   }) async {
     final trimmedName = fullName.trim();
     final trimmedEmail = email.trim();
@@ -73,6 +74,7 @@ class SignupController extends ChangeNotifier {
       password: password,
       confirmPassword: confirmPassword,
       referralCode: referralCode,
+      partnerCode: partnerCode,
       countryCode: ApiConfig.defaultCountryCode,
     );
 
@@ -96,6 +98,7 @@ class SignupController extends ChangeNotifier {
     required String email,
     required String phoneNumber,
     String? referralCode,
+    String? partnerCode,
   }) async {
     if (!_isOAuthSignupPending) return null;
 
@@ -120,6 +123,7 @@ class SignupController extends ChangeNotifier {
       email: trimmedEmail,
       phoneNumber: trimmedPhone,
       referralCode: referralCode,
+      partnerCode: partnerCode,
       countryCode: ApiConfig.defaultCountryCode,
     );
 

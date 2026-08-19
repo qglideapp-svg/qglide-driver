@@ -304,19 +304,37 @@ class PhoneVerificationService {
   ///
   /// [lateAutoVerify] emits once when [verificationCompleted] finishes after
   /// [codeSent] already delivered the immediate result.
+  static String resolveFirebasePhoneE164({
+    required String phone,
+    String? firebasePhoneE164,
+  }) {
+    final fromBackend = firebasePhoneE164?.trim();
+    if (fromBackend != null && fromBackend.isNotEmpty) {
+      if (fromBackend.startsWith('+')) return fromBackend;
+      final digits = fromBackend.replaceAll(RegExp(r'\D'), '');
+      if (digits.isNotEmpty) return '+$digits';
+    }
+    return toE164(phone);
+  }
+
   static Future<PhoneVerificationSendSession> sendCode(
     String phone, {
     String? email,
+    String? firebasePhoneE164,
     bool forceResend = false,
+    bool allowSessionRestore = true,
   }) async {
-    final e164 = toE164(phone);
+    final e164 = resolveFirebasePhoneE164(
+      phone: phone,
+      firebasePhoneE164: firebasePhoneE164,
+    );
     if (e164.isEmpty) {
       throw PhoneVerificationException('Invalid phone number.');
     }
 
     _verificationEmail = email?.trim();
 
-    if (forceResend) {
+    if (forceResend || !allowSessionRestore) {
       await clearPersistedVerificationSession();
     } else {
       final restored = await _tryRestorePersistedSession(phone);
@@ -338,7 +356,7 @@ class PhoneVerificationService {
     unawaited(
       FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: e164,
-        timeout: const Duration(seconds: 60),
+        timeout: const Duration(seconds: 120),
         forceResendingToken: forceResend ? _resendToken : null,
         verificationCompleted: (PhoneAuthCredential credential) async {
           if (!_isActiveSession(sessionId)) return;
@@ -420,7 +438,7 @@ class PhoneVerificationService {
     );
 
     final immediateResult = immediateCompleter.future.timeout(
-      const Duration(seconds: 65),
+      const Duration(seconds: 120),
       onTimeout: () {
         if (codeSent &&
             _verificationId != null &&
@@ -430,7 +448,8 @@ class PhoneVerificationService {
         throw PhoneVerificationException(
           codeSent
               ? 'Verification is taking longer than expected. Try resending the code.'
-              : 'Timed out waiting for Firebase to send the verification code.',
+              : 'Timed out waiting for Firebase to send the verification code. '
+                  'If a browser security check opened, complete it first, then tap Resend Code.',
           code: 'timeout',
         );
       },

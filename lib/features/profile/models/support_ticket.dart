@@ -78,8 +78,10 @@ class SupportTicketMessage {
         json['sender'] ??
         json['user_type'] ??
         json['author_type'];
+    final normalizedSender = senderType?.toString().trim().toLowerCase();
     final isFromDriver = _parseBool(json['is_from_driver']) ||
-        senderType?.toString().trim().toLowerCase() == 'driver';
+        normalizedSender == 'driver' ||
+        normalizedSender == 'user';
 
     return SupportTicketMessage(
       id: _readString(json['id']) ??

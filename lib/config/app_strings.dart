@@ -58,6 +58,27 @@ class AppStrings {
   String get english => _t('English', 'الإنجليزية');
   String get arabic => _t('Arabic', 'العربية');
   String get support => _t('Support', 'الدعم');
+  String get supportChat => _t('Support chat', 'دردشة الدعم');
+  String get supportChatWelcome => _t(
+        'Hi! How can we help you today?',
+        'مرحباً! كيف يمكننا مساعدتك اليوم؟',
+      );
+  String get supportChatAgentName =>
+      _t('QGlide Support', 'دعم QGlide');
+  String get supportChatAgentSubtitle => _t(
+        'We usually reply within 24 hours',
+        'نرد عادةً خلال 24 ساعة',
+      );
+  String get typeMessage => _t('Type a message', 'اكتب رسالة');
+  String get viewAllTickets => _t('All tickets', 'كل التذاكر');
+  String get supportChatHistory => _t('Support chat history', 'سجل دردشة الدعم');
+  String get viewChatHistory => _t('History', 'السجل');
+  String get noSupportChatHistory => _t(
+        'No unread messages from support.',
+        'لا توجد رسائل غير مقروءة من الدعم.',
+      );
+  String get chatHistoryToday => _t('Today', 'اليوم');
+  String get chatHistoryYesterday => _t('Yesterday', 'أمس');
   String get helpCenter => _t('Help Center', 'مركز المساعدة');
   String get currentLocation => _t('Current Location', 'الموقع الحالي');
   String get locationUnavailable => _t('Unavailable', 'غير متاح');
@@ -106,6 +127,8 @@ class AppStrings {
   String get confirmPassword => _t('Confirm Password', 'تأكيد كلمة المرور');
   String get referralCodeOptional =>
       _t('Referral Code (Optional)', 'رمز الإحالة (اختياري)');
+  String get partnerCodeOptional =>
+      _t('Partner Code (Optional)', 'رمز الشريك (اختياري)');
   String get creatingAccount => _t('Creating account...', 'جاري إنشاء الحساب...');
   String get createAccount => _t('Create Account', 'إنشاء حساب');
   String get signupConfirmPhoneTitle =>
@@ -197,6 +220,14 @@ class AppStrings {
   String get instructionSendingCode => _t(
         'Sending a 6-digit code to ',
         'جاري إرسال رمز مكوّن من 6 أرقام إلى ',
+      );
+  String get instructionCompleteBrowserCheck => _t(
+        'If a browser window opens, complete the security check there first. The SMS will arrive after that.',
+        'إذا فُتحت نافذة متصفح، أكمل التحقق الأمني هناك أولاً. ستصل الرسالة النصية بعد ذلك.',
+      );
+  String get verificationRestoredSession => _t(
+        'A code was already sent recently. Check your SMS or tap Resend Code.',
+        'تم إرسال رمز مؤخراً. تحقق من رسائلك النصية أو اضغط إعادة إرسال الرمز.',
       );
   String get instructionManualTimedOut => _t(
         'Enter the code from your SMS manually. It was sent to ',

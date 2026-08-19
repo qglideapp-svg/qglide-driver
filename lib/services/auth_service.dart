@@ -58,6 +58,8 @@ class AuthService {
   static const _onboardingCompletedKey = 'onboarding_completed';
   static const _pendingVerificationPhoneKey = 'pending_verification_phone';
   static const _pendingVerificationEmailKey = 'pending_verification_email';
+  static const _pendingVerificationFirebasePhoneE164Key =
+      'pending_verification_firebase_phone_e164';
   static const _pendingSignupPasswordKey = 'pending_signup_password';
   static const _signupBootstrapEmailKey = 'signup_bootstrap_email';
   static const _signupBootstrapPasswordKey = 'signup_bootstrap_password';
@@ -179,6 +181,7 @@ class AuthService {
     required String email,
     String? password,
     String countryCode = ApiConfig.defaultCountryCode,
+    String? firebasePhoneE164,
   }) async {
     final prefs = await _prefs();
     if (prefs == null) return;
@@ -189,6 +192,15 @@ class AuthService {
     if (normalized.isEmpty) return;
     await prefs.setString(_pendingVerificationPhoneKey, normalized);
     await prefs.setString(_pendingVerificationEmailKey, email.trim());
+    final trimmedFirebasePhone = firebasePhoneE164?.trim();
+    if (trimmedFirebasePhone != null && trimmedFirebasePhone.isNotEmpty) {
+      await prefs.setString(
+        _pendingVerificationFirebasePhoneE164Key,
+        trimmedFirebasePhone,
+      );
+    } else {
+      await prefs.remove(_pendingVerificationFirebasePhoneE164Key);
+    }
     if (password != null && password.isNotEmpty) {
       await prefs.setString(_pendingSignupPasswordKey, password);
       await prefs.setString(_signupBootstrapEmailKey, email.trim());
@@ -254,9 +266,12 @@ class AuthService {
     final phone = prefs.getString(_pendingVerificationPhoneKey)?.trim();
     if (phone == null || phone.isEmpty) return null;
     final email = prefs.getString(_pendingVerificationEmailKey)?.trim();
+    final firebasePhoneE164 =
+        prefs.getString(_pendingVerificationFirebasePhoneE164Key)?.trim();
     final args = VerificationArgs.fromPhone(
       phone: phone,
       email: email,
+      firebasePhoneE164: firebasePhoneE164,
     );
     if (!args.hasValidPhone) {
       await clearPendingVerificationContext();
@@ -278,6 +293,7 @@ class AuthService {
     final prefs = await _prefs();
     if (prefs == null) return;
     await prefs.remove(_pendingVerificationPhoneKey);
+    await prefs.remove(_pendingVerificationFirebasePhoneE164Key);
   }
 
   static Future<void> clearPendingSignupCredentials() async {
@@ -1779,6 +1795,8 @@ class AuthService {
   static Future<Map<String, dynamic>> driverOAuthSignup({
     String? phone,
     String? referralCode,
+    String? partnerCode,
+    String countryCode = ApiConfig.defaultCountryCode,
   }) async {
     await refreshSessionIfNeeded();
 
@@ -1794,10 +1812,15 @@ class AuthService {
     final trimmedPhone = phone?.trim();
     if (trimmedPhone != null && trimmedPhone.isNotEmpty) {
       body['phone'] = trimmedPhone;
+      body['country_code'] = countryCode;
     }
     final referral = referralCode?.trim();
     if (referral != null && referral.isNotEmpty) {
       body['referral_code'] = referral;
+    }
+    final partner = partnerCode?.trim();
+    if (partner != null && partner.isNotEmpty) {
+      body['partner_code'] = partner;
     }
 
     try {
@@ -2056,6 +2079,7 @@ class AuthService {
     required String email,
     required String phoneNumber,
     String? referralCode,
+    String? partnerCode,
     String countryCode = ApiConfig.defaultCountryCode,
   }) async {
     final trimmedName = fullName.trim();
@@ -2089,6 +2113,8 @@ class AuthService {
     final oauthResult = await driverOAuthSignup(
       phone: normalizedPhone,
       referralCode: referralCode,
+      partnerCode: partnerCode,
+      countryCode: countryCode,
     );
     if (oauthResult['success'] != true) {
       return oauthResult;
@@ -2099,6 +2125,7 @@ class AuthService {
       phone: trimmedPhone,
       email: trimmedEmail,
       countryCode: countryCode,
+      firebasePhoneE164: extractFirebasePhoneE164(oauthResult),
     );
     await DriverStatusService.recordSignupStep(
       accessRoute: DriverAccessRoute.phoneVerification,
@@ -2522,6 +2549,28 @@ class AuthService {
     return fallback;
   }
 
+  /// Reads `phone_verification.firebase_phone_e164` from signup/auth responses.
+  static String? extractFirebasePhoneE164(Map<String, dynamic> response) {
+    final candidates = <Map<String, dynamic>>[];
+    final data = response['data'];
+    if (data is Map<String, dynamic>) {
+      candidates.add(data);
+      candidates.add(unwrapAuthPayload(data));
+    }
+    candidates.add(response);
+
+    for (final map in candidates) {
+      final phoneVerification = map['phone_verification'];
+      if (phoneVerification is! Map) continue;
+      final e164 = _readNullableString(phoneVerification['firebase_phone_e164']);
+      if (e164 == null || e164.isEmpty) continue;
+      if (e164.startsWith('+')) return e164;
+      final digits = e164.replaceAll(RegExp(r'\D'), '');
+      if (digits.isNotEmpty) return '+$digits';
+    }
+    return null;
+  }
+
   static Future<Map<String, dynamic>> driverSignup({
     required String fullName,
     required String email,
@@ -2529,6 +2578,7 @@ class AuthService {
     required String password,
     required String confirmPassword,
     String? referralCode,
+    String? partnerCode,
     String countryCode = ApiConfig.defaultCountryCode,
   }) async {
     try {
@@ -2545,6 +2595,10 @@ class AuthService {
       if (referral != null && referral.isNotEmpty) {
         body['referral_code'] = referral;
       }
+      final partner = partnerCode?.trim();
+      if (partner != null && partner.isNotEmpty) {
+        body['partner_code'] = partner;
+      }
 
       final response = await http
           .post(
@@ -2556,12 +2610,14 @@ class AuthService {
 
       final result = _handleResponse(response);
       if (result['success'] == true) {
+        final firebasePhoneE164 = extractFirebasePhoneE164(result);
         await markOnboardingCompleted();
         await savePendingVerificationContext(
           phone: phoneNumber,
           email: email,
           password: password,
           countryCode: countryCode,
+          firebasePhoneE164: firebasePhoneE164,
         );
         await DriverStatusService.recordSignupStep(
           accessRoute: DriverAccessRoute.phoneVerification,
@@ -4788,6 +4844,10 @@ class AuthService {
 
   static Future<Map<String, dynamic>> getDriverNotifications({
     int limit = 20,
+    String? type,
+    bool? includeCompletedTransactions,
+    bool? includeCompletedRides,
+    bool includeRead = false,
   }) async {
     await refreshSessionIfNeeded();
 
@@ -4799,8 +4859,25 @@ class AuthService {
       };
     }
 
+    final queryParameters = <String, String>{'limit': '$limit'};
+    final trimmedType = type?.trim();
+    if (trimmedType != null && trimmedType.isNotEmpty) {
+      queryParameters['type'] = trimmedType;
+    }
+    if (includeCompletedTransactions != null) {
+      queryParameters['include_completed_transactions'] =
+          includeCompletedTransactions.toString();
+    }
+    if (includeCompletedRides != null) {
+      queryParameters['include_completed_rides'] =
+          includeCompletedRides.toString();
+    }
+    if (includeRead) {
+      queryParameters['include_read'] = 'true';
+    }
+
     final uri = Uri.parse(ApiConfig.riderNotificationsUrl).replace(
-      queryParameters: {'limit': '$limit'},
+      queryParameters: queryParameters,
     );
 
     try {
@@ -4815,6 +4892,31 @@ class AuthService {
         'error': {'message': 'Network error: $e'},
       };
     }
+  }
+
+  /// Admin private messages (`notification_type: system`) for support chat.
+  static Future<Map<String, dynamic>> getAdminSystemNotifications({
+    int limit = 50,
+    bool includeRead = true,
+  }) {
+    return getDriverNotifications(
+      type: 'system',
+      limit: limit,
+      includeCompletedTransactions: false,
+      includeCompletedRides: false,
+      includeRead: includeRead,
+    );
+  }
+
+  static List<DriverNotification> extractUnreadAdminNotifications(
+    Map<String, dynamic> response,
+  ) {
+    return extractDriverNotifications(response)
+        .where(
+          (notification) =>
+              !notification.isRead && notification.message.trim().isNotEmpty,
+        )
+        .toList();
   }
 
   static Future<Map<String, dynamic>> markNotificationsAsRead({

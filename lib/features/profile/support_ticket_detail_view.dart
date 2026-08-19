@@ -8,6 +8,7 @@ import '../../config/app_constants.dart';
 import '../../config/app_fonts.dart';
 import '../../config/app_responsive.dart';
 import '../../services/auth_service.dart';
+import '../support/support_chat_widgets.dart';
 import 'models/support_ticket.dart';
 
 class SupportTicketDetailArgs {
@@ -219,9 +220,7 @@ class _SupportTicketDetailViewState extends State<SupportTicketDetailView> {
 
   Widget _buildMessageList(AppResponsive r, DashboardTheme dashboard) {
     if (_isLoading && _messages.isEmpty) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.loginButton),
-      );
+      return const SupportChatLazyLoader();
     }
 
     if (_loadError != null && _messages.isEmpty) {

@@ -54,6 +54,8 @@ final verificationControllerProvider = ChangeNotifierProvider.autoDispose
         phoneNumber: args?.phoneNumber ?? '',
         normalizedPhone: args?.normalizedPhone ?? '',
         email: args?.email,
+        firebasePhoneE164: args?.firebasePhoneE164,
+        requireFreshSms: args?.requireFreshSms ?? false,
       ),
     );
   },

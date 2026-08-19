@@ -18,6 +18,7 @@ import '../features/profile/personal_information_view.dart';
 import '../features/profile/add_support_ticket_view.dart';
 import '../features/profile/submitted_tickets_view.dart';
 import '../features/profile/support_ticket_detail_view.dart';
+import '../features/support/support_chat_history_view.dart';
 import '../features/profile/profile_view.dart';
 import '../features/ride/call/in_app_call_args.dart';
 import '../features/ride/call/in_app_call_view.dart';
@@ -45,6 +46,7 @@ class AppRoutes {
   static const submittedTickets = '/submitted-tickets';
   static const addSupportTicket = '/add-support-ticket';
   static const supportTicketDetail = '/support-ticket-detail';
+  static const supportChatHistory = '/support-chat-history';
   static const rideChat = '/ride-chat';
   static const inAppCall = '/in-app-call';
   static const referDriverProgress = '/refer-driver-progress';
@@ -146,6 +148,11 @@ class AppRoutes {
                   subject: 'They Scammed Me',
                 ),
           ),
+        );
+      case supportChatHistory:
+        return MaterialPageRoute<void>(
+          settings: settings,
+          builder: (_) => const SupportChatHistoryView(),
         );
       case rideChat:
         final args = settings.arguments as RideChatArgs?;

@@ -100,7 +100,13 @@ class _VerificationViewState extends ConsumerState<VerificationView> {
       }
 
       final restored = data is Map && data['restored'] == true;
-      if (restored) return;
+      if (restored) {
+        AuthTopToast.showSuccess(
+          context,
+          AppStringsScope.of(context).verificationRestoredSession,
+        );
+        return;
+      }
 
       final message = data is Map ? data['message']?.toString() : null;
       if (message != null && message.isNotEmpty) {
@@ -243,6 +249,14 @@ class _VerificationViewState extends ConsumerState<VerificationView> {
               ],
             ),
           ),
+          if (controller.isSendingCode || controller.isWaitingForCode) ...[
+            ResponsiveGap(12),
+            Text(
+              s.instructionCompleteBrowserCheck,
+              textAlign: TextAlign.center,
+              style: r.bodyStyle(color: theme.mutedText),
+            ),
+          ],
           if (controller.codeReadyForEntry && !controller.isAutoVerifying) ...[
             ResponsiveGap(12),
             Text(

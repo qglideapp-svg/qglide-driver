@@ -11,13 +11,15 @@ class VerificationController extends ChangeNotifier {
     required this.phoneNumber,
     required this.normalizedPhone,
     this.email,
-  }) {
-    _startTimer();
-  }
+    this.firebasePhoneE164,
+    this.requireFreshSms = false,
+  });
 
   final String phoneNumber;
   final String normalizedPhone;
   final String? email;
+  final String? firebasePhoneE164;
+  final bool requireFreshSms;
   final digitControllers = List.generate(6, (_) => TextEditingController());
   final focusNodes = List.generate(6, (_) => FocusNode());
 
@@ -115,7 +117,9 @@ class VerificationController extends ChangeNotifier {
       final session = await PhoneVerificationService.sendCode(
         apiPhoneNumber,
         email: email,
+        firebasePhoneE164: firebasePhoneE164,
         forceResend: forceResend,
+        allowSessionRestore: !requireFreshSms,
       );
       _listenForVerificationSession(
         started: session.lateAutoVerifyStarted,

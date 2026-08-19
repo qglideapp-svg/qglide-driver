@@ -119,6 +119,18 @@ class _HelpCenterViewState extends State<HelpCenterView> {
                 ResponsiveGap(10),
                 _SupportActionCard(
                   r: r,
+                  icon: Icons.chat_bubble_outline_rounded,
+                  title: s.supportChatHistory,
+                  subtitle: s.supportChatWelcome,
+                  onTap: () {
+                    Navigator.of(context).pushNamed(
+                      AppRoutes.supportChatHistory,
+                    );
+                  },
+                ),
+                ResponsiveGap(10),
+                _SupportActionCard(
+                  r: r,
                   icon: Icons.confirmation_number_outlined,
                   title: s.submitTicketAction,
                   subtitle: s.submitTicketSubtitle,

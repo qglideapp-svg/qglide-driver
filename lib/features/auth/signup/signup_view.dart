@@ -17,6 +17,8 @@ import '../../../routes/app_routes.dart';
 import '../../../features/tutorial/tutorial_screen_helper.dart';
 import '../../../features/tutorial/tutorial_target.dart';
 import '../../../features/tutorial/tutorial_target_registry.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/phone_verification_service.dart';
 import '../../../services/push_notification_service.dart';
 import '../widgets/auth_top_toast.dart';
 import '../widgets/auth_widgets.dart';
@@ -41,6 +43,7 @@ class _SignupViewState extends ConsumerState<SignupView>
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _referralController = TextEditingController();
+  final _partnerCodeController = TextEditingController();
   var _isSocialAuthenticating = false;
   var _oauthEmailLocked = false;
   TapGestureRecognizer? _termsRecognizer;
@@ -134,6 +137,7 @@ class _SignupViewState extends ConsumerState<SignupView>
         email: _emailController.text,
         phoneNumber: _phoneController.text,
         referralCode: _referralController.text,
+        partnerCode: _partnerCodeController.text,
       );
     } else {
       response = await _controller.signUp(
@@ -143,6 +147,7 @@ class _SignupViewState extends ConsumerState<SignupView>
         password: _passwordController.text,
         confirmPassword: _confirmPasswordController.text,
         referralCode: _referralController.text,
+        partnerCode: _partnerCodeController.text,
       );
     }
     if (!mounted || response == null) return;
@@ -155,11 +160,16 @@ class _SignupViewState extends ConsumerState<SignupView>
 
     unawaited(PushNotificationService.registerTokenIfLoggedIn());
 
+    final firebasePhoneE164 = AuthService.extractFirebasePhoneE164(response);
+    await PhoneVerificationService.clearPersistedVerificationSession();
+    if (!mounted) return;
     Navigator.of(context).pushReplacementNamed(
       AppRoutes.verification,
       arguments: VerificationArgs.fromPhone(
         phone: _phoneController.text,
         email: _emailController.text.trim(),
+        firebasePhoneE164: firebasePhoneE164,
+        requireFreshSms: true,
       ),
     );
   }
@@ -241,6 +251,7 @@ class _SignupViewState extends ConsumerState<SignupView>
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _referralController.dispose();
+    _partnerCodeController.dispose();
     super.dispose();
   }
 
@@ -364,6 +375,12 @@ class _SignupViewState extends ConsumerState<SignupView>
             controller: _referralController,
             hintText: s.referralCodeOptional,
             prefix: Icon(Icons.local_offer_outlined, size: r.iconSm, color: theme.iconMuted),
+          ),
+          ResponsiveGap(16),
+          AuthTextField(
+            controller: _partnerCodeController,
+            hintText: s.partnerCodeOptional,
+            prefix: Icon(Icons.handshake_outlined, size: r.iconSm, color: theme.iconMuted),
           ),
               ],
             ),
