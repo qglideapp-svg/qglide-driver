@@ -30,6 +30,7 @@ import 'models/nearby_ride_offer.dart';
 import 'models/signup_performance_bonus.dart';
 import 'utils/ride_route_progress.dart';
 import 'widgets/map_marker_icons.dart';
+import '../../utils/pickup_wait_time.dart';
 
 enum DashboardTab { driver, earnings }
 
@@ -163,6 +164,9 @@ class HomeController extends ChangeNotifier {
 
   Timer? _nearbyRidesPollingTimer;
   Timer? _rideStatusPollingTimer;
+  Timer? _pickupWaitTimer;
+  PickupWaitTimeSnapshot _pickupWaitSnapshot = const PickupWaitTimeSnapshot();
+  DateTime? _driverArrivedAt;
   Timer? _pickupEtaTickTimer;
   Timer? _locationUpdateTimer;
   Timer? _navigationSmoothingTimer;
@@ -281,6 +285,9 @@ class HomeController extends ChangeNotifier {
   bool get hasActivePickup => _hasActivePickup;
   bool get hasActiveRide => _hasActiveRide;
   bool get hasActiveTrip => _hasActiveTrip;
+  PickupWaitTimeSnapshot get pickupWaitSnapshot => _pickupWaitSnapshot.copyWith(
+        arrivedAt: _driverArrivedAt ?? _pickupWaitSnapshot.arrivedAt,
+      );
 
   int? get livePickupEtaMinutes {
     if (!_hasActivePickup) return null;
@@ -1636,7 +1643,12 @@ class HomeController extends ChangeNotifier {
         return;
       }
 
-      final shouldNotify = _applyRideStatus(ride);
+      var shouldNotify = _applyRideStatus(ride);
+      if (_hasActiveRide) {
+        _syncPickupWaitFromRide(ride);
+        _ensurePickupWaitTimerRunning();
+        shouldNotify = true;
+      }
       if (shouldNotify) {
         notifyListeners();
       }
@@ -1667,6 +1679,7 @@ class HomeController extends ChangeNotifier {
       _enterStartRidePanel(
         _mergeOfferWithCachedDetails(offer),
         prepareMap: enteringStartRide && !_rideMapIconsReady,
+        rideData: ride,
       );
       return true;
     }
@@ -1879,6 +1892,7 @@ class HomeController extends ChangeNotifier {
     NearbyRideOffer offer, {
     bool prepareMap = false,
   }) {
+    _stopPickupWaitTracking();
     unawaited(RideRequestSoundService.stop());
     _isPendingRideAcceptance = false;
     _pendingAcceptRideId = null;
@@ -1906,6 +1920,7 @@ class HomeController extends ChangeNotifier {
   void _enterStartRidePanel(
     NearbyRideOffer offer, {
     bool prepareMap = false,
+    Map<String, dynamic>? rideData,
   }) {
     unawaited(RideRequestSoundService.stop());
     _isPendingRideAcceptance = false;
@@ -1928,9 +1943,80 @@ class HomeController extends ChangeNotifier {
     } else {
       unawaited(_fitRouteCamera());
     }
+    _beginPickupWaitTracking(rideData: rideData);
+  }
+
+  DateTime? _serverPickupArrivalFromRide(Map<String, dynamic>? rideData) {
+    final parsed = PickupWaitTimeParser.fromRideMap(rideData);
+    if (parsed.arrivedAt != null) return parsed.arrivedAt;
+    if (parsed.serverWaitSeconds != null && parsed.serverWaitSeconds! >= 0) {
+      return DateTime.now().toUtc().subtract(
+            Duration(seconds: parsed.serverWaitSeconds!),
+          );
+    }
+    return null;
+  }
+
+  void _syncPickupWaitFromRide(Map<String, dynamic> rideData) {
+    final parsed = PickupWaitTimeParser.fromRideMap(rideData);
+    final serverArrivedAt = _serverPickupArrivalFromRide(rideData);
+    final arrivedAt = PickupWaitTimeSnapshot.mergeArrivalAnchors(
+      _driverArrivedAt,
+      parsed.hasServerWaitTime ? parsed.arrivedAt : serverArrivedAt,
+    );
+    _pickupWaitSnapshot =
+        parsed.copyWith(arrivedAt: arrivedAt ?? parsed.arrivedAt);
+    if (arrivedAt != null) {
+      _driverArrivedAt = arrivedAt;
+    } else if (parsed.arrivedAt != null) {
+      _driverArrivedAt = parsed.arrivedAt;
+    }
+  }
+
+  void _beginPickupWaitTracking({Map<String, dynamic>? rideData}) {
+    final anchoredBeforeSync = _driverArrivedAt ?? _pickupWaitSnapshot.arrivedAt;
+
+    if (rideData != null) {
+      _syncPickupWaitFromRide(rideData);
+    }
+
+    if (_driverArrivedAt == null && _pickupWaitSnapshot.arrivedAt == null) {
+      _driverArrivedAt = DateTime.now().toUtc();
+      _pickupWaitSnapshot =
+          _pickupWaitSnapshot.copyWith(arrivedAt: _driverArrivedAt);
+    } else if (anchoredBeforeSync != null &&
+        _driverArrivedAt != null &&
+        _driverArrivedAt!.isBefore(anchoredBeforeSync)) {
+      _driverArrivedAt = anchoredBeforeSync;
+      _pickupWaitSnapshot =
+          _pickupWaitSnapshot.copyWith(arrivedAt: _driverArrivedAt);
+    }
+
+    _ensurePickupWaitTimerRunning();
+  }
+
+  void _ensurePickupWaitTimerRunning() {
+    if (!_hasActiveRide || _hasActiveTrip) return;
+    if (_pickupWaitTimer?.isActive == true) return;
+
+    _pickupWaitTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!_hasActiveRide || _hasActiveTrip) {
+        _stopPickupWaitTracking();
+        return;
+      }
+      notifyListeners();
+    });
+  }
+
+  void _stopPickupWaitTracking() {
+    _pickupWaitTimer?.cancel();
+    _pickupWaitTimer = null;
+    _driverArrivedAt = null;
+    _pickupWaitSnapshot = const PickupWaitTimeSnapshot();
   }
 
   void _resetActiveRideFlow() {
+    _stopPickupWaitTracking();
     _isPendingRideAcceptance = false;
     _pendingAcceptRideId = null;
     _hasRideRequest = false;
@@ -2626,6 +2712,7 @@ class HomeController extends ChangeNotifier {
 
       _hasActiveRide = false;
       _hasActiveTrip = true;
+      _stopPickupWaitTracking();
       _persistAcceptedRide(_acceptedRideOffer);
       _showDestinationRouteNow();
       _updateNavigationHeading();
@@ -3616,6 +3703,7 @@ class HomeController extends ChangeNotifier {
     stopNearbyRidesPolling();
     stopRideStatusPolling();
     _stopPickupEtaTracking();
+    _stopPickupWaitTracking();
     detachMapController();
     super.dispose();
   }

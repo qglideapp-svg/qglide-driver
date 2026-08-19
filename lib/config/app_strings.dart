@@ -499,6 +499,27 @@ class AppStrings {
   String get cancelRide => _t('Cancel Ride', 'إلغاء الرحلة');
   String get pickUpCompleted => _t('Pick up Completed', 'اكتمل الاستلام');
   String get startRide => _t('Start Ride', 'بدء الرحلة');
+  String get waitTimeTitle => _t('Wait Time', 'وقت الانتظار');
+  String waitTimeGraceMessage(int graceMinutes, String remaining) => _t(
+        '$graceMinutes min free wait — $remaining remaining.',
+        'انتظار مجاني $graceMinutes د — $remaining متبقٍ.',
+      );
+  String waitTimeBillableMessage(String billable) => _t(
+        'Free wait ended. Billable wait: $billable.',
+        'انتهى الانتظار المجاني. وقت الانتظار المُفوتر: $billable.',
+      );
+  String waitTimeFeePerMinute(double fee) => _t(
+        'Wait fee: QAR ${fee.toStringAsFixed(2)}/min',
+        'رسوم الانتظار: ${fee.toStringAsFixed(2)} ر.ق/د',
+      );
+  String waitTimeEstimatedCharge(double charge) => _t(
+        'Estimated wait charge: QAR ${charge.toStringAsFixed(2)}',
+        'رسوم الانتظار التقديرية: ${charge.toStringAsFixed(2)} ر.ق',
+      );
+  String get waitTimeStartRideHint => _t(
+        'Start the ride when the rider is in your vehicle.',
+        'ابدأ الرحلة عندما يركب الراكب مركبتك.',
+      );
   String get tripToDestination => _t('Trip to Destination', 'الرحلة إلى الوجهة');
   String get completeTrip => _t('Complete Trip', 'إكمال الرحلة');
   String get ignoreBooking => _t('Ignore Booking', 'تجاهل الحجز');

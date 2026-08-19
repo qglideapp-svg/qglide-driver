@@ -893,6 +893,8 @@ class _HomeViewState extends ConsumerState<HomeView>
                                 onGoOnlinePressed: _handleGoOnlinePressed,
                                 isCancellingRide: _controller.isCancellingRide,
                                 isStartingRide: _controller.isStartingRide,
+                                pickupWaitSnapshot:
+                                    _controller.pickupWaitSnapshot,
                                 onCancelRide: () => unawaited(_handleCancelRide()),
                                 onStartRide: () => unawaited(_handleStartRide()),
                                 onCall: _showDialModal,

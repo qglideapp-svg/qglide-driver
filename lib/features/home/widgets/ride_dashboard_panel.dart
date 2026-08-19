@@ -7,8 +7,10 @@ import '../../../config/app_responsive.dart';
 import '../../../config/dashboard_theme.dart';
 import '../models/nearby_ride_offer.dart';
 import 'driver_ad_placement_banner.dart';
+import 'pickup_wait_time_panel.dart';
 import '../../../shared/widgets/app_strings_scope.dart';
 import '../../../shared/widgets/ride_panel_shared.dart';
+import '../../../utils/pickup_wait_time.dart';
 
 class RideDashboardPanel extends StatelessWidget {
   const RideDashboardPanel({
@@ -21,6 +23,7 @@ class RideDashboardPanel extends StatelessWidget {
     required this.onStartRide,
     required this.onCall,
     required this.onMessage,
+    this.pickupWaitSnapshot,
     this.isCancellingRide = false,
     this.isStartingRide = false,
   });
@@ -33,6 +36,7 @@ class RideDashboardPanel extends StatelessWidget {
   final VoidCallback onStartRide;
   final VoidCallback onCall;
   final VoidCallback onMessage;
+  final PickupWaitTimeSnapshot? pickupWaitSnapshot;
   final bool isCancellingRide;
   final bool isStartingRide;
 
@@ -67,6 +71,10 @@ class RideDashboardPanel extends StatelessWidget {
                 ),
                 SizedBox(height: r.gap(12)),
                 _PickupLocationBar(offer: offer),
+                if (pickupWaitSnapshot?.isTracking == true) ...[
+                  SizedBox(height: r.gap(14)),
+                  PickupWaitTimePanel(snapshot: pickupWaitSnapshot!),
+                ],
                 SizedBox(height: r.gap(14)),
                 const DriverAdPlacementBanner(),
                 SizedBox(height: r.gap(20)),
